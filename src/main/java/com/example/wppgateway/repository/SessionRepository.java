@@ -6,5 +6,8 @@ import java.util.Optional;
 
 public interface SessionRepository extends JpaRepository<SessionEntity, Long> {
     Optional<SessionEntity> findBySessionName(String sessionName);
-    Optional<SessionEntity> findByClientApiKey(String apiKey);
+
+    Optional<SessionEntity> findByPhone(String phone);
+
+    Optional<SessionEntity> findByClientApiKeyAndSessionName(String clientApiKey, String sessionName);
 }

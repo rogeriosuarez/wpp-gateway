@@ -5,10 +5,12 @@ import lombok.Data;
 
 @Data
 public class SendMessageRequest {
-    @NotBlank
+    @NotBlank(message = "Session name is required")
     private String session;
-    @NotBlank
+
+    @NotBlank(message = "Recipient phone is required")
     private String to;
-    @NotBlank
+
+    @NotBlank(message = "Message is required")
     private String message;
 }

@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: wpp_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: wppgateway
+      MYSQL_USER: wppuser
+      MYSQL_PASSWORD: wpp123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  adminer:
+    image: adminer:latest
+    container_name: wpp_adminer
+    restart: always
+    ports:
+      - "8081:8080"
+
+  wpp-gateway:
+    build: .
+    container_name: wpp_gateway_app
+    restart: always
+    depends_on:
+      - mysql
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-service.default.svc.cluster.local:3306/wpp_gateway?allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: heureca12772577
+      WPP_BASE_URL: http://168.138.133.119:8099/api/wppconnect
+
+volumes:
+  mysql_data:

@@ -3,7 +3,7 @@ spring:
   datasource:
     # CORREÇÃO: Usar 'mysql' (nome do serviço no K3s) em vez de 'mysql-service'
     # CORREÇÃO: Usar usuário 'dev' e senha real
-    url: jdbc:mysql://localhost:32000/wppgateway?useSSL=false&allowPublicKeyRetrieval=true&autoReconnect=true&connectionTimeout=30000&socketTimeout=60000
+    url: jdbc:mysql://mysql:3306/wppgateway?useSSL=false&allowPublicKeyRetrieval=true&autoReconnect=true&connectionTimeout=30000&socketTimeout=60000
     username: dev
     password: Heureca@2011
     hikari:
@@ -44,7 +44,7 @@ spring:
 
 # CORREÇÃO: wppconnect estará DENTRO do K3s como serviço interno
 wpp:
-  base-url: http://localhost:30121 # Nome do serviço interno
+  base-url: http://wppconnect-service-internal:80 # Nome do serviço interno
   secret-key: THISISMYSECURETOKEN
 
 # Configuração do servidor
