@@ -4,3 +4,7 @@
 /.mvn
 /.settings
 *.log
+novo_qr_code.png
+qr_base64.txt
+test_image.sh
+debug-response.txt
