@@ -176,7 +176,7 @@ public class SessionController {
         Map<?, ?> resp = wppService.startSession(session, s.getWppToken());
         logger.info("WPPCONNECT RESPONSE: {}", resp);
 
-        String status = String.valueOf(resp.getOrDefault("status", "UNKNOWN")).toUpperCase();
+        String status = resp.get("status") != null ? resp.get("status").toString() : "UNKNOWN";
 
         if (resp.containsKey("qrcode") || resp.containsKey("urlcode")) {
             status = "QRCODE";
