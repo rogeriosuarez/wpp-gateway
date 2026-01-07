@@ -66,3 +66,12 @@ logging:
     org.hibernate.type: TRACE
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+springdoc:
+  paths-to-exclude: /admin/**
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html

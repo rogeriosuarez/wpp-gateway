@@ -1,9 +1,10 @@
-// MessageReceiveController.java
 package com.heureca.wppgateway.controller;
 
 import java.util.Map;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -11,132 +12,163 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.heureca.wppgateway.model.Client;
+import com.heureca.wppgateway.config.OpenApiConfig;
 import com.heureca.wppgateway.model.SessionEntity;
 import com.heureca.wppgateway.repository.SessionRepository;
-import com.heureca.wppgateway.service.ClientService;
+import com.heureca.wppgateway.service.SessionUsageService;
 import com.heureca.wppgateway.service.UsageService;
 import com.heureca.wppgateway.service.WppService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+
 @RestController
 @RequestMapping("/api/receive")
+@Tag(name = "Message Receive", description = "Receive WhatsApp messages from an active session (proxy to WPPConnect). API key must be in header 'X-Api-Key'")
+@SecurityRequirement(name = OpenApiConfig.SECURITY_SCHEME_NAME)
 public class MessageReceiveController {
 
-    private final ClientService clientService;
-    private final UsageService usageService;
+    private static final Logger logger = LoggerFactory.getLogger(MessageReceiveController.class);
+
     private final SessionRepository sessionRepository;
     private final WppService wppService;
+    private final UsageService usageService;
+    private final SessionUsageService sessionUsageService;
 
-    public MessageReceiveController(ClientService clientService,
-            UsageService usageService,
+    public MessageReceiveController(
             SessionRepository sessionRepository,
-            WppService wppService) {
-        this.clientService = clientService;
-        this.usageService = usageService;
+            WppService wppService,
+            UsageService usageService,
+            SessionUsageService sessionUsageService) {
         this.sessionRepository = sessionRepository;
         this.wppService = wppService;
+        this.usageService = usageService;
+        this.sessionUsageService = sessionUsageService;
     }
 
-    /**
-     * GET /api/receive/{session}/all-unread-messages
-     * Exatamente igual ao endpoint do WPPConnect
-     */
+    @Operation(summary = "Get all unread WhatsApp messages", description = """
+            Returns all unread messages from a WhatsApp session.
+
+            ### Notes
+            - Authentication and client validation are handled by the filter
+            - This endpoint focuses on WhatsApp delivery rules
+            - API key must be in header 'X-Api-Key'
+            """)
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Unread messages retrieved successfully"),
+            @ApiResponse(responseCode = "400", description = "Session not found or invalid request"),
+            @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+            @ApiResponse(responseCode = "409", description = "Session not connected"),
+            @ApiResponse(responseCode = "429", description = "Session daily limit exceeded"),
+            @ApiResponse(responseCode = "500", description = "Failed to fetch messages from WPPConnect")
+    })
     @GetMapping("/{session}/all-unread-messages")
     public ResponseEntity<?> getAllUnreadMessages(
-            @RequestHeader("X-Api-Key") String apiKey,
-            @PathVariable String session) {
+            @Parameter(name = "X-Api-Key", description = "RapidAPI or internal API Key", required = true, in = ParameterIn.HEADER) @RequestHeader("X-Api-Key") String apiKey,
+            @PathVariable String session,
+            HttpServletRequest request) {
 
-        return processMessageRequest(apiKey, session, null, "all-unread");
+        return processMessageRequest(session, null, request);
     }
 
-    /**
-     * GET /api/receive/{session}/all-messages-in-chat/{phone}
-     * Exatamente igual ao endpoint do WPPConnect
-     */
+    @Operation(summary = "Get all messages from a specific chat", description = """
+            Returns all messages exchanged with a specific phone number in a WhatsApp session.
+
+            ### Notes
+            - Authentication and client validation are handled by the filter
+            - This endpoint focuses on WhatsApp delivery rules
+            - API key must be in header 'X-Api-Key'
+            """)
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Chat messages retrieved successfully"),
+            @ApiResponse(responseCode = "400", description = "Session or phone not found"),
+            @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+            @ApiResponse(responseCode = "409", description = "Session not connected"),
+            @ApiResponse(responseCode = "429", description = "Session daily limit exceeded"),
+            @ApiResponse(responseCode = "500", description = "Failed to fetch messages from WPPConnect")
+    })
     @GetMapping("/{session}/all-messages-in-chat/{phone}")
     public ResponseEntity<?> getAllMessagesInChat(
-            @RequestHeader("X-Api-Key") String apiKey,
+            @Parameter(name = "X-Api-Key", description = "RapidAPI or internal API Key", required = true, in = ParameterIn.HEADER) @RequestHeader("X-Api-Key") String apiKey,
             @PathVariable String session,
-            @PathVariable String phone) {
+            @PathVariable String phone,
+            HttpServletRequest request) {
 
-        return processMessageRequest(apiKey, session, phone, "chat-specific");
+        return processMessageRequest(session, phone, request);
     }
 
-    /**
-     * Método comum para processar ambas as requisições
+    /*
+     * ==========================
+     * Internals
+     * ==========================
      */
-    private ResponseEntity<?> processMessageRequest(String apiKey,
-            String sessionName,
-            String phone,
-            String requestType) {
+    private ResponseEntity<?> processMessageRequest(String sessionName, String phone, HttpServletRequest request) {
 
-        // 1. Validar cliente
-        Optional<Client> clientOpt = clientService.findByApiKey(apiKey);
-        if (clientOpt.isEmpty()) {
-            return ResponseEntity.status(401).body(Map.of("error", "invalid api key"));
+        // ApiClient já está validado pelo filter
+        Object clientAttr = request.getAttribute("apiClient");
+        if (clientAttr == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "client not found in request context"));
         }
-        Client client = clientOpt.get();
 
-        // 2. Validar sessão existe
+        // 1. Validate session existence
         Optional<SessionEntity> sessionOpt = sessionRepository.findBySessionName(sessionName);
         if (sessionOpt.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "session not found"));
+            return ResponseEntity.badRequest().body(Map.of("error", "session not found", "session", sessionName));
         }
 
         SessionEntity session = sessionOpt.get();
 
-        // 3. Verificar se sessão pertence ao cliente
-        if (!apiKey.equals(session.getClientApiKey())) {
-            return ResponseEntity.status(403).body(Map.of("error", "session does not belong to client"));
-        }
-
-        // 4. Verificar status da sessão (deve estar CONNECTED)
-        String sessionStatus = session.getStatus();
-        if (!"CONNECTED".equalsIgnoreCase(sessionStatus)) {
+        // 2. Validate session status
+        if (!"CONNECTED".equalsIgnoreCase(session.getStatus())) {
             return ResponseEntity.status(409).body(Map.of(
                     "error", "session not connected",
-                    "status", sessionStatus,
-                    "hint", "Session must be connected to receive messages"));
+                    "status", session.getStatus()));
         }
 
-        // 5. Rate limiting POR CLIENTE (plano)
-        int clientUsed = usageService.getUsageToday(apiKey);
-        if (clientUsed + 1 > client.getDailyLimit()) {
+        // 3. Session daily limit (anti-block)
+        if (!sessionUsageService.canSendMessage(sessionName)) {
+            int used = sessionUsageService.getUsageToday(sessionName);
             return ResponseEntity.status(429).body(Map.of(
-                    "error", "client daily limit exceeded",
-                    "limit", client.getDailyLimit(),
-                    "used", clientUsed));
+                    "error", "session daily limit exceeded (anti-block protection)",
+                    "limit", 450,
+                    "used", used,
+                    "session", sessionName));
         }
 
-        // 6. Buscar token da sessão
+        // 4. Validate WPP token
         String token = session.getWppToken();
         if (token == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "wpp token missing for session"));
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "wpp token missing for session",
+                    "session", sessionName));
         }
 
         try {
             Map<?, ?> wppResponse;
-
-            // 7. Chamar endpoint apropriado do WPPConnect
-            if ("chat-specific".equals(requestType) && phone != null) {
+            if (phone != null) {
                 wppResponse = wppService.getAllMessagesInChat(sessionName, token, phone);
             } else {
                 wppResponse = wppService.getAllUnreadMessages(sessionName, token);
             }
 
-            // 8. Registrar uso (1 request)
-            usageService.increment(apiKey, 1);
+            logger.info("MESSAGES RECEIVED | session={} | phone={}", sessionName, phone);
 
-            // 9. Retornar resposta EXATA do WPPConnect (proxy transparente)
+            sessionUsageService.recordUsage(sessionName);
+
             return ResponseEntity.ok(wppResponse);
-
         } catch (Exception e) {
-            // Log do erro mas retornar erro genérico
+            logger.error("ERROR RECEIVING MESSAGES | session={}", sessionName, e);
             return ResponseEntity.status(500).body(Map.of(
                     "error", "failed to fetch messages from WPPConnect",
                     "message", e.getMessage(),
                     "session", sessionName,
-                    "request_type", requestType));
+                    "phone", phone));
         }
     }
 }
