@@ -15,7 +15,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
     show-sql: true
     properties:
       hibernate:
@@ -45,7 +45,7 @@ spring:
 # CORREÇÃO: wppconnect estará DENTRO do K3s como serviço interno
 wpp:
   base-url: http://wppconnect-service-internal:80 # Nome do serviço interno
-  secret-key: THISISMYSECURETOKEN
+  secret-key: HEURECAWPPGATEWAYKEY
 
 # Configuração do servidor
 server:
@@ -60,12 +60,22 @@ server:
 # Logging
 logging:
   level:
-    com.example: DEBUG
-    org.springframework.web: INFO
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type: TRACE
+    root: WARN
+
+    # Sua aplicação
+    com.heureca.wppgateway: INFO
+
+    # Spring
+    org.springframework: WARN
+    org.springframework.web: WARN
+
+    # Hibernate / JPA
+    org.hibernate: WARN
+    org.hibernate.SQL: OFF
+    org.hibernate.type: OFF
+
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
 springdoc:
   paths-to-exclude: /admin/**

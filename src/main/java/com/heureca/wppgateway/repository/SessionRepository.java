@@ -12,4 +12,6 @@ public interface SessionRepository extends JpaRepository<SessionEntity, Long> {
     Optional<SessionEntity> findByPhone(String phone);
 
     Optional<SessionEntity> findByClientApiKeyAndSessionName(String clientApiKey, String sessionName);
+
+    Optional<SessionEntity> findActiveByClientApiKeyAndPhone(String apiKey, String from);
 }

@@ -4,32 +4,28 @@ import java.util.Base64;
 import java.util.Map;
 import java.util.Optional;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import com.heureca.wppgateway.config.OpenApiConfig;
-import com.heureca.wppgateway.dto.SendFileRequest;
-import com.heureca.wppgateway.dto.SendImageRequest;
-import com.heureca.wppgateway.dto.SendStickerRequest;
-import com.heureca.wppgateway.dto.SendVoiceRequest;
-import com.heureca.wppgateway.model.Client;
+import com.heureca.wppgateway.model.ApiClient;
 import com.heureca.wppgateway.model.SessionEntity;
 import com.heureca.wppgateway.repository.SessionRepository;
-import com.heureca.wppgateway.service.ClientService;
 import com.heureca.wppgateway.service.SessionUsageService;
 import com.heureca.wppgateway.service.UsageService;
 import com.heureca.wppgateway.service.WppService;
+import com.heureca.wppgateway.dto.*;
 
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/media")
@@ -39,19 +35,16 @@ public class MediaController {
 
     private static final Logger logger = LoggerFactory.getLogger(MediaController.class);
 
-    private final ClientService clientService;
     private final UsageService usageService;
     private final SessionUsageService sessionUsageService;
     private final SessionRepository sessionRepository;
     private final WppService wppService;
 
     public MediaController(
-            ClientService clientService,
             UsageService usageService,
             SessionUsageService sessionUsageService,
             SessionRepository sessionRepository,
             WppService wppService) {
-        this.clientService = clientService;
         this.usageService = usageService;
         this.sessionUsageService = sessionUsageService;
         this.sessionRepository = sessionRepository;
@@ -63,14 +56,7 @@ public class MediaController {
      * Common validations
      * ==========================
      */
-
-    private ResponseEntity<?> validateRequest(String apiKey, String sessionName) {
-
-        Optional<Client> clientOpt = clientService.findByApiKey(apiKey);
-        if (clientOpt.isEmpty()) {
-            return ResponseEntity.status(401).body(Map.of("error", "invalid api key"));
-        }
-        Client client = clientOpt.get();
+    private ResponseEntity<?> validateRequest(ApiClient client, String sessionName) {
 
         Optional<SessionEntity> sessionOpt = sessionRepository.findBySessionName(sessionName);
         if (sessionOpt.isEmpty()) {
@@ -79,8 +65,9 @@ public class MediaController {
 
         SessionEntity session = sessionOpt.get();
 
-        if (!apiKey.equals(session.getClientApiKey())) {
-            return ResponseEntity.status(403).body(Map.of("error", "session does not belong to client"));
+        if (!client.getApiKey().equals(session.getClientApiKey())) {
+            return ResponseEntity.status(403).body(Map.of(
+                    "error", "session does not belong to client"));
         }
 
         String status = session.getStatus();
@@ -92,7 +79,7 @@ public class MediaController {
                     "status", status));
         }
 
-        int clientUsed = usageService.getUsageToday(apiKey);
+        int clientUsed = usageService.getUsageToday(client.getApiKey());
         if (clientUsed + 1 > client.getDailyLimit()) {
             return ResponseEntity.status(429).body(Map.of(
                     "error", "client daily limit exceeded",
@@ -110,7 +97,8 @@ public class MediaController {
         }
 
         if (session.getWppToken() == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "wpp token missing for session"));
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "wpp token missing for session"));
         }
 
         return ResponseEntity.ok(Map.of(
@@ -122,20 +110,10 @@ public class MediaController {
      * Send Image
      * ==========================
      */
-
-    @Operation(summary = "Send an image via WhatsApp", description = """
-            Sends an image (JPG, PNG, WEBP) to a WhatsApp contact or group.
-
-            ### Notes
-            - Base64 must be valid
-            - Counts as 1 request
-            - Session anti-block limit applies (450/day)
-            - API key must be in header 'X-Api-Key'
-            """)
+    @Operation(summary = "Send an image via WhatsApp")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Image sent successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid request or base64"),
-            @ApiResponse(responseCode = "401", description = "Invalid API Key"),
             @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
             @ApiResponse(responseCode = "409", description = "Session not ready"),
             @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
@@ -143,10 +121,12 @@ public class MediaController {
     })
     @PostMapping("/send-image")
     public ResponseEntity<?> sendImage(
-            @Parameter(name = "X-Api-Key", required = true, in = ParameterIn.HEADER) @RequestHeader("X-Api-Key") String apiKey,
-            @Valid @RequestBody SendImageRequest dto) {
+            @Valid @RequestBody SendImageRequest dto,
+            HttpServletRequest request) {
 
-        ResponseEntity<?> validation = validateRequest(apiKey, dto.getSession());
+        ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+        ResponseEntity<?> validation = validateRequest(client, dto.getSession());
         if (!validation.getStatusCode().is2xxSuccessful()) {
             return validation;
         }
@@ -172,7 +152,7 @@ public class MediaController {
                             "caption", dto.getCaption() != null ? dto.getCaption() : "",
                             "base64", dto.getBase64()));
 
-            usageService.increment(apiKey, 1);
+            usageService.increment(client.getApiKey(), 1);
             sessionUsageService.recordUsage(dto.getSession());
 
             return ResponseEntity.ok(resp);
@@ -188,14 +168,15 @@ public class MediaController {
      * Send File
      * ==========================
      */
-
-    @Operation(summary = "Send a document file via WhatsApp. API key must be in header 'X-Api-Key'")
+    @Operation(summary = "Send a document file via WhatsApp")
     @PostMapping("/send-file")
     public ResponseEntity<?> sendFile(
-            @RequestHeader("X-Api-Key") String apiKey,
-            @Valid @RequestBody SendFileRequest dto) {
+            @Valid @RequestBody SendFileRequest dto,
+            HttpServletRequest request) {
 
-        ResponseEntity<?> validation = validateRequest(apiKey, dto.getSession());
+        ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+        ResponseEntity<?> validation = validateRequest(client, dto.getSession());
         if (!validation.getStatusCode().is2xxSuccessful()) {
             return validation;
         }
@@ -212,7 +193,7 @@ public class MediaController {
                         "caption", dto.getCaption() != null ? dto.getCaption() : "",
                         "base64", dto.getBase64()));
 
-        usageService.increment(apiKey, 1);
+        usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(dto.getSession());
 
         return ResponseEntity.ok(resp);
@@ -223,14 +204,15 @@ public class MediaController {
      * Send Voice
      * ==========================
      */
-
-    @Operation(summary = "Send a voice message (PTT) via WhatsApp. API key must be in header 'X-Api-Key'")
+    @Operation(summary = "Send a voice message (PTT) via WhatsApp")
     @PostMapping("/send-voice")
     public ResponseEntity<?> sendVoice(
-            @RequestHeader("X-Api-Key") String apiKey,
-            @Valid @RequestBody SendVoiceRequest dto) {
+            @Valid @RequestBody SendVoiceRequest dto,
+            HttpServletRequest request) {
 
-        ResponseEntity<?> validation = validateRequest(apiKey, dto.getSession());
+        ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+        ResponseEntity<?> validation = validateRequest(client, dto.getSession());
         if (!validation.getStatusCode().is2xxSuccessful()) {
             return validation;
         }
@@ -245,7 +227,7 @@ public class MediaController {
                         "isGroup", dto.isGroup(),
                         "base64Ptt", dto.getBase64Ptt()));
 
-        usageService.increment(apiKey, 1);
+        usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(dto.getSession());
 
         return ResponseEntity.ok(resp);
@@ -256,14 +238,15 @@ public class MediaController {
      * Send Sticker
      * ==========================
      */
-
-    @Operation(summary = "Send a sticker via WhatsApp. API key must be in header 'X-Api-Key'")
+    @Operation(summary = "Send a sticker via WhatsApp")
     @PostMapping("/send-sticker")
     public ResponseEntity<?> sendSticker(
-            @RequestHeader("X-Api-Key") String apiKey,
-            @Valid @RequestBody SendStickerRequest dto) {
+            @Valid @RequestBody SendStickerRequest dto,
+            HttpServletRequest request) {
 
-        ResponseEntity<?> validation = validateRequest(apiKey, dto.getSession());
+        ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+        ResponseEntity<?> validation = validateRequest(client, dto.getSession());
         if (!validation.getStatusCode().is2xxSuccessful()) {
             return validation;
         }
@@ -278,7 +261,7 @@ public class MediaController {
                         "isGroup", dto.isGroup(),
                         "base64", dto.getBase64()));
 
-        usageService.increment(apiKey, 1);
+        usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(dto.getSession());
 
         return ResponseEntity.ok(resp);
@@ -289,7 +272,6 @@ public class MediaController {
      * Utils
      * ==========================
      */
-
     private boolean isValidBase64(String base64) {
         try {
             String clean = base64.contains(",") ? base64.split(",")[1] : base64;

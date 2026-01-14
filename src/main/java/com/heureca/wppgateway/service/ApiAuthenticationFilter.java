@@ -9,6 +9,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import com.heureca.wppgateway.exception.RateLimitExceededException;
 import com.heureca.wppgateway.exception.UnauthorizedException;
 import com.heureca.wppgateway.model.ApiClient;
+import com.heureca.wppgateway.model.ClientSource;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -18,6 +19,8 @@ import jakarta.servlet.http.HttpServletResponse;
 @Component
 public class ApiAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final String RAPIDAPI_PROXY_SECRET = "d2686930-efc1-11f0-b75f-c5c7dea38db1";
+
     private final ApiClientService clientService;
 
     public ApiAuthenticationFilter(ApiClientService clientService) {
@@ -25,7 +28,7 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Ignora rotas públicas (Swagger, health, admin, etc)
+     * Ignora apenas rotas realmente públicas
      */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -34,8 +37,8 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
         return path.startsWith("/v3/api-docs")
                 || path.startsWith("/swagger-ui")
                 || path.startsWith("/swagger-ui.html")
-                || path.startsWith("/actuator")
-                || path.startsWith("/admin");
+                || path.startsWith("/actuator");
+        // ❗ NÃO ignorar /admin
     }
 
     @Override
@@ -47,6 +50,7 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
 
         String rapidKey = request.getHeader("X-RapidAPI-Key");
         String rapidHost = request.getHeader("X-RapidAPI-Host");
+        String rapidProxySecret = request.getHeader("X-RapidAPI-Proxy-Secret");
         String internalKey = request.getHeader("X-Api-Key");
 
         try {
@@ -56,10 +60,16 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
             // 🔥 RapidAPI
             // ==========================
             if (rapidKey != null && rapidHost != null) {
+
+                if (rapidProxySecret == null
+                        || !RAPIDAPI_PROXY_SECRET.equals(rapidProxySecret)) {
+                    throw new UnauthorizedException("Invalid RapidAPI proxy origin");
+                }
+
                 client = clientService.getOrCreateRapidClient(rapidKey);
 
                 // ==========================
-                // 🔐 Cliente interno
+                // 🔐 Cliente interno / admin
                 // ==========================
             } else if (internalKey != null) {
                 client = clientService.validateInternalClient(internalKey);
@@ -72,6 +82,14 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
             }
 
             // ==========================
+            // 🛑 Proteção de rotas ADMIN
+            // ==========================
+            if (request.getRequestURI().startsWith("/admin")
+                    && client.getSource() != ClientSource.ADMIN) {
+                throw new UnauthorizedException("Admin privileges required");
+            }
+
+            // ==========================
             // 🚦 Rate limit centralizado
             // ==========================
             clientService.validateRateLimit(client);
@@ -81,7 +99,6 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
             // ==========================
             request.setAttribute("apiClient", client);
 
-            // Continua o fluxo
             filterChain.doFilter(request, response);
 
         } catch (RateLimitExceededException ex) {

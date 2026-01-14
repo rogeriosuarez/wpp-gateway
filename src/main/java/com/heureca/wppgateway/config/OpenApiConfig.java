@@ -22,33 +22,12 @@ public class OpenApiConfig {
 
                 return new OpenAPI()
                                 .info(apiInfo())
-                                .addServersItem(new Server()
-                                                .url("https://wpp.heurecaai.com")
-                                                .description("Production server"))
                                 .addSecurityItem(
                                                 new SecurityRequirement().addList(SECURITY_SCHEME_NAME))
                                 .components(new Components()
                                                 .addSecuritySchemes(
                                                                 SECURITY_SCHEME_NAME,
-                                                                apiKeyScheme()))
-                                .addTagsItem(new Tag()
-                                                .name("Sessions")
-                                                .description("Create and manage WhatsApp sessions"))
-                                .addTagsItem(new Tag()
-                                                .name("Messages")
-                                                .description("Send WhatsApp messages"))
-                                .addTagsItem(new Tag()
-                                                .name("Receive")
-                                                .description("Receive WhatsApp messages (proxy from WPPConnect)"))
-                                .addTagsItem(new Tag()
-                                                .name("Interactive")
-                                                .description("Send interactive WhatsApp messages (lists, buttons, polls)"))
-                                .addTagsItem(new Tag()
-                                                .name("Media")
-                                                .description("Upload and manage media files"))
-                                .addTagsItem(new Tag()
-                                                .name("Account")
-                                                .description("Usage, plans and limits"));
+                                                                apiKeyScheme()));
         }
 
         private Info apiInfo() {
@@ -88,6 +67,14 @@ public class OpenApiConfig {
                                 .name("X-Api-Key")
                                 .type(SecurityScheme.Type.APIKEY)
                                 .in(SecurityScheme.In.HEADER)
-                                .description("API Key required to access the WPP Gateway API");
+                                .description("""
+                                                API Key authentication.
+
+                                                🔐 This API supports:
+                                                - RapidAPI keys (sent automatically as `X-RapidAPI-Key`)
+                                                - Internal API keys (sent as `X-Api-Key`)
+
+                                                ⚠️ When using RapidAPI Marketplace, do NOT send X-Api-Key manually.
+                                                                                              """);
         }
 }

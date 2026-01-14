@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "sessions")
 @Data
-@Schema(name = "Session", description = "Represents a WhatsApp session managed by the WPP Gateway")
+@Schema(name = "Session")
 public class SessionEntity {
 
     @Id

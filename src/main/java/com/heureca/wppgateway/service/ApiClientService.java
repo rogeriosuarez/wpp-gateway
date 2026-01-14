@@ -9,6 +9,7 @@ import com.heureca.wppgateway.exception.UnauthorizedException;
 import com.heureca.wppgateway.model.ApiClient;
 import com.heureca.wppgateway.model.ClientSource;
 import com.heureca.wppgateway.repository.ApiClientRepository;
+import com.heureca.wppgateway.util.ApiKeyGenerator;
 
 @Service
 public class ApiClientService {
@@ -56,5 +57,15 @@ public class ApiClientService {
             client.setDailyUsage(0L);
             client.setLastReset(LocalDate.now());
         }
+    }
+
+    public ApiClient createInternalClient(String name, Long dailyLimit) {
+        ApiClient client = new ApiClient();
+        client.setApiKey(ApiKeyGenerator.generate());
+        client.setName(name);
+        client.setSource(ClientSource.INTERNAL);
+        client.setDailyLimit(dailyLimit); // unlimited
+        client.setDailyUsage(0L);
+        return repository.save(client);
     }
 }

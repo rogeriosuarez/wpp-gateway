@@ -1,6 +1,5 @@
 package com.heureca.wppgateway.controller;
 
-import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
@@ -9,211 +8,221 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.heureca.wppgateway.dto.ListSection;
-import com.heureca.wppgateway.dto.SendButtonsRequest;
-import com.heureca.wppgateway.dto.SendListRequest;
-import com.heureca.wppgateway.dto.SendPollRequest;
-import com.heureca.wppgateway.dto.SendReplyRequest;
+import com.heureca.wppgateway.model.ApiClient;
 import com.heureca.wppgateway.model.SessionEntity;
 import com.heureca.wppgateway.repository.SessionRepository;
-import com.heureca.wppgateway.service.ClientService;
 import com.heureca.wppgateway.service.SessionUsageService;
 import com.heureca.wppgateway.service.UsageService;
 import com.heureca.wppgateway.service.WppService;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/interactive")
-@Tag(name = "Interactive", description = "Send interactive WhatsApp messages")
+@Tag(name = "Interactive", description = "Send interactive WhatsApp messages (passthrough to WPPConnect)")
 @SecurityRequirement(name = "ApiKeyAuth")
 public class InteractiveController {
 
-    private final ClientService clientService;
     private final UsageService usageService;
     private final SessionUsageService sessionUsageService;
     private final SessionRepository sessionRepository;
     private final WppService wppService;
 
     public InteractiveController(
-            ClientService clientService,
             UsageService usageService,
             SessionUsageService sessionUsageService,
             SessionRepository sessionRepository,
             WppService wppService) {
-        this.clientService = clientService;
         this.usageService = usageService;
         this.sessionUsageService = sessionUsageService;
         this.sessionRepository = sessionRepository;
         this.wppService = wppService;
     }
 
-    @Operation(summary = "Send interactive list message", description = "Send a WhatsApp interactive list (menu with selectable options). API key must be in header 'X-Api-Key'")
+    // =========================================================
+    // SEND LIST
+    // =========================================================
+
+    @Operation(summary = "Send interactive list message", description = """
+            Proxies an interactive list message to WPPConnect.
+
+            🔹 The request body is forwarded **AS-IS** to the provider
+            🔹 The field `session` is required and used only for internal validation
+            🔹 All other fields must follow the WPPConnect specification
+            """)
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "List message sent successfully"),
-            @ApiResponse(responseCode = "401", description = "Invalid API Key"),
+            @ApiResponse(responseCode = "200", description = "Message sent successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid request or missing session", content = @Content(schema = @Schema(example = """
+                    {
+                      "error": "missing session in request body"
+                    }
+                    """))),
+            @ApiResponse(responseCode = "401", description = "Invalid or missing API Key"),
             @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
-            @ApiResponse(responseCode = "409", description = "Session not ready"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+            @ApiResponse(responseCode = "409", description = "Session not connected"),
+            @ApiResponse(responseCode = "429", description = "Daily usage limit exceeded"),
+            @ApiResponse(responseCode = "500", description = "Provider error")
     })
     @PostMapping("/send-list")
     public ResponseEntity<?> sendList(
-            @Valid @RequestBody SendListRequest dto,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples = @ExampleObject(name = "send-list-message", summary = "Interactive list example", value = """
+                    {
+                      "session": "my-session",
+                      "phone": "552199999999",
+                      "isGroup": false,
+                      "description": "Desc for list",
+                      "buttonText": "Select a option",
+                      "sections": [
+                        {
+                          "title": "Section 1",
+                          "rows": [
+                            {
+                              "rowId": "1",
+                              "title": "Test 1",
+                              "description": "Description 1"
+                            },
+                            {
+                              "rowId": "2",
+                              "title": "Test 2",
+                              "description": "Description 2"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    """))) @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
 
-        ResponseEntity<?> validation = validateRequest(dto.getSession());
-        if (!validation.getStatusCode().is2xxSuccessful())
-            return validation;
-
-        String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
-        String apiKey = (String) request.getAttribute("clientApiKey"); // ✅ pega do filter
-
-        Map<String, Object> body = Map.of(
-                "phone", dto.getPhone(),
-                "isGroup", dto.isGroup(),
-                "buttonText", dto.getButtonText(),
-                "description", dto.getDescription() != null ? dto.getDescription() : "",
-                "sections", convertSections(dto.getSections()));
-
-        Map<?, ?> response = wppService.sendListMessage(dto.getSession(), token, body);
-
-        usageService.increment(apiKey, 1);
-        sessionUsageService.recordUsage(dto.getSession());
-
-        return ResponseEntity.ok(response);
+        return proxy(body, request, ProxyType.LIST);
     }
 
-    @Operation(summary = "Send interactive buttons", description = "Send WhatsApp buttons message (legacy but still supported). API key must be in header 'X-Api-Key'")
-    @PostMapping("/send-buttons")
-    public ResponseEntity<?> sendButtons(
-            @Valid @RequestBody SendButtonsRequest dto,
-            HttpServletRequest request) {
+    // =========================================================
+    // SEND POLL
+    // =========================================================
 
-        ResponseEntity<?> validation = validateRequest(dto.getSession());
-        if (!validation.getStatusCode().is2xxSuccessful())
-            return validation;
+    @Operation(summary = "Send poll message", description = """
+            Proxies a WhatsApp poll message to WPPConnect.
 
-        String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
-        String apiKey = (String) request.getAttribute("clientApiKey");
-
-        Map<String, Object> body = Map.of(
-                "phone", dto.getPhone(),
-                "isGroup", dto.isGroup(),
-                "message", dto.getMessage(),
-                "title", dto.getTitle(),
-                "buttons", dto.getButtons().stream()
-                        .map(b -> Map.of(
-                                "buttonId", b.getButtonId(),
-                                "buttonText", b.getButtonText()))
-                        .toList());
-
-        Map<?, ?> response = wppService.sendButtons(dto.getSession(), token, body);
-
-        usageService.increment(apiKey, 1);
-        sessionUsageService.recordUsage(dto.getSession());
-
-        return ResponseEntity.ok(response);
-    }
-
-    @Operation(summary = "Send poll message", description = "Send an interactive WhatsApp poll. API key must be in header 'X-Api-Key'")
+            🔹 The request body is forwarded **AS-IS**
+            🔹 The `session` field is required for validation only
+            """)
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Poll sent successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "401", description = "Invalid API Key"),
+            @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+            @ApiResponse(responseCode = "409", description = "Session not connected"),
+            @ApiResponse(responseCode = "429", description = "Daily usage limit exceeded"),
+            @ApiResponse(responseCode = "500", description = "Provider error")
+    })
     @PostMapping("/send-poll")
     public ResponseEntity<?> sendPoll(
-            @Valid @RequestBody SendPollRequest dto,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples = @ExampleObject(name = "send-poll-message", summary = "Poll example", value = """
+                    {
+                      "session": "my-session",
+                      "phone": "5521995037681",
+                      "isGroup": false,
+                      "name": "Poll name",
+                      "choices": [
+                        "Option 1",
+                        "Option 2",
+                        "Option 3"
+                      ],
+                      "options": {
+                        "selectableCount": 1
+                      }
+                    }
+                    """))) @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
 
-        ResponseEntity<?> validation = validateRequest(dto.getSession());
-        if (!validation.getStatusCode().is2xxSuccessful())
+        return proxy(body, request, ProxyType.POLL);
+    }
+
+    // =========================================================
+    // CORE PROXY
+    // =========================================================
+
+    private ResponseEntity<?> proxy(
+            Map<String, Object> body,
+            HttpServletRequest request,
+            ProxyType type) {
+
+        ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+        Object sessionObj = body.get("session");
+        if (sessionObj == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "missing session in request body"));
+        }
+
+        String sessionName = sessionObj.toString();
+
+        ResponseEntity<?> validation = validateSession(sessionName, client);
+        if (!validation.getStatusCode().is2xxSuccessful()) {
             return validation;
+        }
 
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
-        String apiKey = (String) request.getAttribute("clientApiKey");
 
-        Map<String, Object> body = Map.of(
-                "phone", dto.getPhone(),
-                "isGroup", dto.isGroup(),
-                "name", dto.getName(),
-                "choices", dto.getChoices(),
-                "options", dto.getOptions() != null ? dto.getOptions() : Map.of("selectableCount", 1));
+        // 🔥 remove session before forwarding
+        body.remove("session");
 
-        Map<?, ?> response = wppService.sendPollMessage(dto.getSession(), token, body);
+        Map<?, ?> response = switch (type) {
+            case LIST -> wppService.sendListMessage(sessionName, token, body);
+            case POLL -> wppService.sendPollMessage(sessionName, token, body);
+        };
 
-        usageService.increment(apiKey, 1);
-        sessionUsageService.recordUsage(dto.getSession());
+        usageService.increment(client.getApiKey(), 1);
+        sessionUsageService.recordUsage(sessionName);
 
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Send reply buttons", description = "Send WhatsApp quick reply buttons. API key must be in header 'X-Api-Key'")
-    @PostMapping("/send-reply")
-    public ResponseEntity<?> sendReply(
-            @Valid @RequestBody SendReplyRequest dto,
-            HttpServletRequest request) {
+    // =========================================================
+    // VALIDATION
+    // =========================================================
 
-        ResponseEntity<?> validation = validateRequest(dto.getSession());
-        if (!validation.getStatusCode().is2xxSuccessful())
-            return validation;
+    private ResponseEntity<?> validateSession(String sessionName, ApiClient client) {
 
-        String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
-        String apiKey = (String) request.getAttribute("clientApiKey");
-
-        Map<String, Object> body = Map.of(
-                "phone", dto.getPhone(),
-                "isGroup", dto.isGroup(),
-                "message", dto.getMessage(),
-                "options", Map.of(
-                        "buttons", dto.getButtons().stream()
-                                .map(b -> Map.of(
-                                        "buttonId", b.getId(),
-                                        "buttonText", b.getText()))
-                                .toList()));
-
-        Map<?, ?> response = wppService.sendReply(dto.getSession(), token, body);
-
-        usageService.increment(apiKey, 1);
-        sessionUsageService.recordUsage(dto.getSession());
-
-        return ResponseEntity.ok(response);
-    }
-
-    /*
-     * =========================
-     * Shared validation logic
-     * =========================
-     */
-
-    private ResponseEntity<?> validateRequest(String sessionName) {
         var sessionOpt = sessionRepository.findBySessionName(sessionName);
         if (sessionOpt.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "session not found"));
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "session not found",
+                    "session", sessionName));
         }
 
         SessionEntity session = sessionOpt.get();
 
+        if (!session.getClientApiKey().equals(client.getApiKey())) {
+            return ResponseEntity.status(403).body(Map.of(
+                    "error", "session does not belong to client",
+                    "session", sessionName));
+        }
+
         if (session.getWppToken() == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "wpp token missing"));
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "wpp token missing",
+                    "session", sessionName));
         }
 
         return ResponseEntity.ok(Map.of(
-                "session", session,
                 "token", session.getWppToken()));
     }
 
-    private Object convertSections(List<ListSection> sections) {
-        return sections.stream()
-                .map(s -> Map.of(
-                        "title", s.getTitle(),
-                        "rows", s.getRows().stream()
-                                .map(r -> Map.of(
-                                        "rowId", r.getRowId(),
-                                        "title", r.getTitle(),
-                                        "description", r.getDescription()))
-                                .toList()))
-                .toList();
+    // =========================================================
+    // INTERNAL
+    // =========================================================
+
+    private enum ProxyType {
+        LIST,
+        POLL
     }
 }
