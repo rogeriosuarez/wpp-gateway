@@ -28,7 +28,15 @@ import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/api/receive")
-@Tag(name = "Receive", description = "Receive WhatsApp messages from an active session (proxy to WPPConnect). API key must be provided in request header.")
+@Tag(name = "Receive", 
+description = """
+            Receive WhatsApp messages using an existing WhatsApp session.
+
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+            """)
 @SecurityRequirement(name = OpenApiConfig.SECURITY_SCHEME_NAME)
 public class MessageReceiveController {
 
@@ -51,12 +59,13 @@ public class MessageReceiveController {
         }
 
         @Operation(summary = "Get all unread WhatsApp messages", description = """
-                        Returns all unread messages from a WhatsApp session.
+            Receive all unread WhatsApp messages using an existing WhatsApp session.
 
-                        ### Authentication
-                        - API Key must be provided in header `X-Api-Key`
-                        - Authentication is handled by filter
-                        """)
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+            """)
         @ApiResponses({
                         @ApiResponse(responseCode = "200", description = "Unread messages retrieved successfully"),
                         @ApiResponse(responseCode = "400", description = "Session not found"),

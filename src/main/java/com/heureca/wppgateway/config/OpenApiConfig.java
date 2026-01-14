@@ -39,7 +39,8 @@ public class OpenApiConfig {
                                                 ### 🔐 Authentication
                                                 All requests require an API Key via HTTP header:
                                                 ```
-                                                X-Api-Key: YOUR_API_KEY
+                                                 - API Key must be provided in header `X-Api-Key`
+                                                 - RapidAPI and internal keys are supported
                                                 ```
 
                                                 ### 📦 Features

@@ -23,6 +23,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.tags.*;
+import io.swagger.v3.oas.annotations.parameters.*;
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
@@ -52,11 +54,12 @@ public class InteractiveController {
     // =========================================================
 
     @Operation(summary = "Send interactive list message", description = """
-            Proxies an interactive list message to WPPConnect.
+            Sends a interactive list message using an existing WhatsApp session.
 
-            🔹 The request body is forwarded **AS-IS** to the provider
-            🔹 The field `session` is required and used only for internal validation
-            🔹 All other fields must follow the WPPConnect specification
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
             """)
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Message sent successfully"),
@@ -109,10 +112,12 @@ public class InteractiveController {
     // =========================================================
 
     @Operation(summary = "Send poll message", description = """
-            Proxies a WhatsApp poll message to WPPConnect.
+            Sends a poll message using an existing WhatsApp session.
 
-            🔹 The request body is forwarded **AS-IS**
-            🔹 The `session` field is required for validation only
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
             """)
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Poll sent successfully"),
@@ -128,7 +133,7 @@ public class InteractiveController {
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples = @ExampleObject(name = "send-poll-message", summary = "Poll example", value = """
                     {
                       "session": "my-session",
-                      "phone": "5521995037681",
+                      "phone": "552199999999",
                       "isGroup": false,
                       "name": "Poll name",
                       "choices": [

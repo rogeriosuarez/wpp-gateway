@@ -19,6 +19,7 @@ import org.springframework.web.client.RestTemplate;
 
 @Service
 public class WppService {
+
     private static final Logger logger = LoggerFactory.getLogger(WppService.class);
 
     private final RestTemplate rest;
@@ -43,8 +44,8 @@ public class WppService {
             logger.error("WPPCONNECT AUTH ERROR ({}): {}", e.getStatusCode(), e.getResponseBodyAsString());
 
             throw new RuntimeException(
-                    "Failed to authenticate with WhatsApp provider. " +
-                            "Please verify that the WPPConnect secret key is correctly configured.");
+                    "Failed to authenticate with WhatsApp provider. "
+                    + "Please verify that the WPPConnect secret key is correctly configured.");
 
         } catch (HttpServerErrorException e) {
             logger.error("WPPCONNECT SERVER ERROR ({}): {}", e.getStatusCode(), e.getResponseBodyAsString());
@@ -58,8 +59,9 @@ public class WppService {
         String url = String.format("%s/api/%s/start-session", wppBaseUrl, sessionName);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        if (token != null)
+        if (token != null) {
             headers.setBearerAuth(token);
+        }
         Map<String, Object> body = Map.of("session", sessionName, "waitQrCode", false, "webhook", "");
         HttpEntity<Map<String, Object>> req = new HttpEntity<>(body, headers);
         logger.debug("REQUEST WPPCONNECT: {} :: req: {}", url, req);
@@ -85,8 +87,8 @@ public class WppService {
     }
 
     /**
-     * GET /api/{session}/all-messages-in-chat/{phone}
-     * Obtém todas as mensagens de um chat específico
+     * GET /api/{session}/all-messages-in-chat/{phone} Obtém todas as mensagens
+     * de um chat específico
      */
     public Map<?, ?> getAllMessagesInChat(String sessionName, String token, String phone) {
         String url = String.format("%s/api/%s/all-messages-in-chat/%s",
@@ -104,8 +106,7 @@ public class WppService {
     }
 
     /**
-     * GET /api/{session}/all-unread-messages
-     * Obtém todas as mensagens não lidas
+     * GET /api/{session}/all-unread-messages Obtém todas as mensagens não lidas
      */
     public Map<?, ?> getAllUnreadMessages(String sessionName, String token) {
         String url = String.format("%s/api/%s/all-unread-messages", wppBaseUrl, sessionName);
@@ -123,10 +124,9 @@ public class WppService {
     // No seu WppService.java existente, adicione estes métodos:
 
     /**
-     * POST /api/{session}/send-image
-     * Envia imagem via base64
+     * POST /api/{session}/send-image Envia imagem via base64
      */
-    public Map<?, ?> sendImage(String sessionName, String token, Map<String, Object> body) {
+    public Map<?, ?> sendImageBase64(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-image", wppBaseUrl, sessionName);
 
         HttpHeaders headers = new HttpHeaders();
@@ -140,9 +140,21 @@ public class WppService {
         return response.getBody();
     }
 
+    public Map<?, ?> sendImagePath(String session, String token, Map<String, Object> body) {
+        String url = String.format("%s/api/%s/send-image", wppBaseUrl, session);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(token);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+        logger.debug("REQUEST WPPCONNECT (send-image): {}", url);
+
+        ResponseEntity<Map> response = rest.exchange(url, HttpMethod.POST, request, Map.class);
+        return response.getBody();
+    }
+
     /**
-     * POST /api/{session}/send-file
-     * Envia documento via base64
+     * POST /api/{session}/send-file Envia documento via base64
      */
     public Map<?, ?> sendFile(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-file", wppBaseUrl, sessionName);
@@ -158,11 +170,40 @@ public class WppService {
         return response.getBody();
     }
 
+    public Map<?, ?> sendFileBase64(String session, String token, Map<String, Object> body) {
+        String url = String.format("%s/api/%s/send-file-base64", wppBaseUrl, session);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(token);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+        logger.debug("REQUEST WPPCONNECT (send-file): {}", url);
+
+        ResponseEntity<Map> response = rest.exchange(url, HttpMethod.POST, request, Map.class);
+        return response.getBody();
+    }
+
     /**
-     * POST /api/{session}/send-voice
-     * Envia áudio via base64
+     * POST /api/{session}/send-voice Envia áudio via base64
      */
     public Map<?, ?> sendVoice(String sessionName, String token, Map<String, Object> body) {
+        String url = String.format("%s/api/%s/send-voice", wppBaseUrl, sessionName);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(token);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+        logger.debug("REQUEST WPPCONNECT (send-voice): {}", url);
+
+        ResponseEntity<Map> response = rest.exchange(url, HttpMethod.POST, request, Map.class);
+        return response.getBody();
+    }
+    /**
+     * POST /api/{session}/send-voice-base64 Envia áudio via base64
+     */
+    public Map<?, ?> sendVoiceBase64(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-voice-base64", wppBaseUrl, sessionName);
 
         HttpHeaders headers = new HttpHeaders();
@@ -177,8 +218,7 @@ public class WppService {
     }
 
     /**
-     * POST /api/{session}/send-sticker
-     * Envia sticker (imagem convertida)
+     * POST /api/{session}/send-sticker Envia sticker (imagem convertida)
      */
     public Map<?, ?> sendSticker(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-sticker", wppBaseUrl, sessionName);
@@ -193,12 +233,26 @@ public class WppService {
         ResponseEntity<Map> response = rest.exchange(url, HttpMethod.POST, request, Map.class);
         return response.getBody();
     }
+    /**
+     * POST /api/{session}/send-sticker-gif Envia sticker (imagem convertida)
+     */
+    public Map<?, ?> sendStickerGif(String sessionName, String token, Map<String, Object> body) {
+        String url = String.format("%s/api/%s/send-sticker-gif", wppBaseUrl, sessionName);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(token);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+        logger.debug("REQUEST WPPCONNECT (send-sticker): {}", url);
+
+        ResponseEntity<Map> response = rest.exchange(url, HttpMethod.POST, request, Map.class);
+        return response.getBody();
+    }
 
     // No seu WppService.java, adicione:
-
     /**
-     * POST /api/{session}/send-list-message
-     * Envia lista interativa de opções
+     * POST /api/{session}/send-list-message Envia lista interativa de opções
      */
     public Map<?, ?> sendListMessage(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-list-message", wppBaseUrl, sessionName);
@@ -216,8 +270,8 @@ public class WppService {
     }
 
     /**
-     * POST /api/{session}/send-buttons (DEPRECATED mas ainda funciona)
-     * Envia botões interativos
+     * POST /api/{session}/send-buttons (DEPRECATED mas ainda funciona) Envia
+     * botões interativos
      */
     public Map<?, ?> sendButtons(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-buttons", wppBaseUrl, sessionName);
@@ -234,8 +288,7 @@ public class WppService {
     }
 
     /**
-     * POST /api/{session}/send-poll-message
-     * Envia enquete interativa
+     * POST /api/{session}/send-poll-message Envia enquete interativa
      */
     public Map<?, ?> sendPollMessage(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-poll-message", wppBaseUrl, sessionName);
@@ -252,8 +305,8 @@ public class WppService {
     }
 
     /**
-     * POST /api/{session}/send-order-message
-     * Envia mensagem de pedido (para e-commerce)
+     * POST /api/{session}/send-order-message Envia mensagem de pedido (para
+     * e-commerce)
      */
     public Map<?, ?> sendOrderMessage(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-order-message", wppBaseUrl, sessionName);
@@ -270,8 +323,8 @@ public class WppService {
     }
 
     /**
-     * POST /api/{session}/send-reply
-     * Envia mensagem com botões de resposta rápida
+     * POST /api/{session}/send-reply Envia mensagem com botões de resposta
+     * rápida
      */
     public Map<?, ?> sendReply(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-reply", wppBaseUrl, sessionName);
@@ -295,8 +348,9 @@ public class WppService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        if (token != null)
+        if (token != null) {
             headers.setBearerAuth(token);
+        }
 
         HttpEntity<Void> req = new HttpEntity<>(headers);
 
@@ -318,8 +372,9 @@ public class WppService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        if (token != null)
+        if (token != null) {
             headers.setBearerAuth(token);
+        }
 
         HttpEntity<Void> req = new HttpEntity<>(headers);
         rest.exchange(url, HttpMethod.POST, req, Void.class);
@@ -333,8 +388,9 @@ public class WppService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        if (token != null)
+        if (token != null) {
             headers.setBearerAuth(token);
+        }
 
         HttpEntity<Void> req = new HttpEntity<>(headers);
         rest.exchange(url, HttpMethod.POST, req, Void.class);

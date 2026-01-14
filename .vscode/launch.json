@@ -12,7 +12,7 @@
         "SPRING_PROFILES_ACTIVE": "local"
       },
       "vmArgs": "-Xmx1G",
-      "console": "internalConsole"
+      "console": "integratedTerminal"
     }
   ]
 }

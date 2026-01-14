@@ -22,6 +22,8 @@ import com.heureca.wppgateway.service.WppService;
 import com.heureca.wppgateway.dto.*;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -70,15 +72,6 @@ public class MediaController {
                     "error", "session does not belong to client"));
         }
 
-        String status = session.getStatus();
-        if (!"OPEN".equalsIgnoreCase(status)
-                && !"QRCODE".equalsIgnoreCase(status)
-                && !"CONNECTED".equalsIgnoreCase(status)) {
-            return ResponseEntity.status(409).body(Map.of(
-                    "error", "session not ready",
-                    "status", status));
-        }
-
         int clientUsed = usageService.getUsageToday(client.getApiKey());
         if (clientUsed + 1 > client.getDailyLimit()) {
             return ResponseEntity.status(429).body(Map.of(
@@ -105,62 +98,180 @@ public class MediaController {
                 "token", session.getWppToken()));
     }
 
+    private String extractSession(Map<String, Object> body) {
+        Object sessionObj = body.get("session");
+        if (sessionObj == null) {
+            throw new IllegalArgumentException("missing session in request body");
+        }
+        return sessionObj.toString();
+    }
+
     /*
      * ==========================
-     * Send Image
+     * Send Image base64
      * ==========================
      */
-    @Operation(summary = "Send an image via WhatsApp")
+    @Operation(summary = "Send image via base64", description = """
+            Sends a image message using an existing WhatsApp session.
+
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+            """)
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Image sent successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid request or base64"),
-            @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
-            @ApiResponse(responseCode = "409", description = "Session not ready"),
-            @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
-            @ApiResponse(responseCode = "500", description = "Failed to send image")
+        @ApiResponse(responseCode = "200", description = "Image sent successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request or base64"),
+        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+        @ApiResponse(responseCode = "409", description = "Session not ready"),
+        @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
+        @ApiResponse(responseCode = "500", description = "Failed to send image")
     })
-    @PostMapping("/send-image")
-    public ResponseEntity<?> sendImage(
-            @Valid @RequestBody SendImageRequest dto,
+    @PostMapping("/send-image-base64")
+    public ResponseEntity<?> sendImageBase64(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples
+                    = @ExampleObject(name = "send-image-base64", summary = "send-image-base64 example", value = """
+                    {
+                        "session": "wpp_552199999999",
+                        "session": "my-session",
+                        "phone": "552199999999",
+                        "isGroup": false,
+                        "filename": "image.jpg",
+                        "caption": "Hello",
+                        "base64": "iVBORw0KGgoAAAANSUhEUgAA..."
+                    }
+                    """))) @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
 
         ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
-        ResponseEntity<?> validation = validateRequest(client, dto.getSession());
+        String session = extractSession(body);
+        ResponseEntity<?> validation = validateRequest(client, session);
         if (!validation.getStatusCode().is2xxSuccessful()) {
             return validation;
         }
 
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
+        body.remove("session");
 
-        if (dto.getBase64() == null || dto.getBase64().isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "base64 is empty"));
+        Map<?, ?> resp = wppService.sendImageBase64(session, token, body);
+
+        usageService.increment(client.getApiKey(), 1);
+        sessionUsageService.recordUsage(session);
+
+        return ResponseEntity.ok(resp);
+    }
+
+    /*
+     * ==========================
+     * Send Image path
+     * ==========================
+     */
+    @Operation(summary = "Send image by file path", description = """
+            Sends a image message using an existing WhatsApp session.
+ 
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+           """)
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Image sent successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request or file"),
+        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+        @ApiResponse(responseCode = "409", description = "Session not ready"),
+        @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
+        @ApiResponse(responseCode = "500", description = "Failed to send image")
+    })
+    @PostMapping("/send-image")
+    public ResponseEntity<?> sendImagePath(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples
+                    = @ExampleObject(name = "send-image", summary = "send-image example", value = """
+                    {
+                        "session": "wpp_552199999999",
+                        "session": "my-session",
+                        "phone": "552199999999",
+                        "isGroup": false,
+                        "path": "/usr/src/app/media/image.jpg"
+                    }
+                    """))) @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+
+        ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+        String session = extractSession(body);
+        ResponseEntity<?> validation = validateRequest(client, session);
+        if (!validation.getStatusCode().is2xxSuccessful()) {
+            return validation;
         }
 
-        if (!isValidBase64(dto.getBase64())) {
-            return ResponseEntity.badRequest().body(Map.of("error", "invalid base64 format"));
+        String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
+        body.remove("session");
+
+        Map<?, ?> resp = wppService.sendImagePath(session, token, body);
+
+        usageService.increment(client.getApiKey(), 1);
+        sessionUsageService.recordUsage(session);
+
+        return ResponseEntity.ok(resp);
+    }
+
+    /*
+     * ==========================
+     * Send File base64
+     * ==========================
+     */
+    @Operation(summary = "Send file base64", description = """
+            Sends a file message using an existing WhatsApp session.
+            
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+        """)
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "File sent successfully"),
+        @ApiResponse(responseCode = "400", description = "Bad Request"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+        @ApiResponse(responseCode = "409", description = "Session not ready"),
+        @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
+        @ApiResponse(responseCode = "500", description = "Failed to send file")
+    })
+    @PostMapping("/send-file-base64")
+    public ResponseEntity<?> sendFileBase64(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples
+                    = @ExampleObject(name = "send-file-base64", summary = "send-file-base64 example", value = """
+                    {
+                        "session": "wpp_552199999999",
+                        "phone": "5521999999999",
+                        "isGroup": false,
+                        "isNewsletter": false,
+                        "isLid": false,
+                        "filename": "file name lol",
+                        "caption": "caption for my file",
+                        "base64": "<base64> string"
+                    }
+                    """))) @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+
+        ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+        String session = extractSession(body);
+        ResponseEntity<?> validation = validateRequest(client, session);
+        if (!validation.getStatusCode().is2xxSuccessful()) {
+            return validation;
         }
 
-        try {
-            Map<?, ?> resp = wppService.sendImage(
-                    dto.getSession(),
-                    token,
-                    Map.of(
-                            "phone", dto.getPhone(),
-                            "isGroup", dto.isGroup(),
-                            "filename", dto.getFilename() != null ? dto.getFilename() : "image.jpg",
-                            "caption", dto.getCaption() != null ? dto.getCaption() : "",
-                            "base64", dto.getBase64()));
+        String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
+        body.remove("session");
 
-            usageService.increment(client.getApiKey(), 1);
-            sessionUsageService.recordUsage(dto.getSession());
+        Map<?, ?> resp = wppService.sendFileBase64(session, token, body);
 
-            return ResponseEntity.ok(resp);
+        usageService.increment(client.getApiKey(), 1);
+        sessionUsageService.recordUsage(session);
 
-        } catch (Exception e) {
-            logger.error("Send image failed", e);
-            return ResponseEntity.status(500).body(Map.of("error", "failed to send image"));
-        }
+        return ResponseEntity.ok(resp);
     }
 
     /*
@@ -168,104 +279,328 @@ public class MediaController {
      * Send File
      * ==========================
      */
-    @Operation(summary = "Send a document file via WhatsApp")
+    @Operation(summary = "Send file by path", description = """
+            Sends a file message using an existing WhatsApp session.
+            
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+            """)
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "File sent successfully"),
+        @ApiResponse(responseCode = "400", description = "Bad Request"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+        @ApiResponse(responseCode = "409", description = "Session not ready"),
+        @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
+        @ApiResponse(responseCode = "500", description = "Failed to send file")
+    })
+
     @PostMapping("/send-file")
-    public ResponseEntity<?> sendFile(
-            @Valid @RequestBody SendFileRequest dto,
+    public ResponseEntity<?> sendFilePath(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples
+                    = @ExampleObject(name = "send-file", summary = "send-file example", value = """
+                    {
+                        "session": "wpp_552199999999",
+                        "phone": "5521999999999",
+                        "isGroup": false,
+                        "isNewsletter": false,
+                        "isLid": false,
+                        "filename": "file name lol",
+                        "caption": "caption for my file",
+                        "path": "<path_file>"
+                    }
+                    """))) @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
 
         ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
-        ResponseEntity<?> validation = validateRequest(client, dto.getSession());
+        String session = extractSession(body);
+        ResponseEntity<?> validation = validateRequest(client, session);
+        if (!validation.getStatusCode().is2xxSuccessful()) {
+            return validation;
+        }
+
+        String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
+        body.remove("session");
+
+        Map<?, ?> resp = wppService.sendFile(session, token, body);
+
+        usageService.increment(client.getApiKey(), 1);
+        sessionUsageService.recordUsage(session);
+
+        return ResponseEntity.ok(resp);
+    }
+
+
+    /*
+ * ==========================
+ * Send Voice (path / url)
+ * ==========================
+     */
+    @Operation(
+            summary = "Send voice message via file path or URL",
+            description = """
+            Sends a voice message using an existing WhatsApp session.
+            
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+                    
+                    """)
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Voice message sent"),
+        @ApiResponse(responseCode = "400", description = "Invalid request"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+        @ApiResponse(responseCode = "409", description = "Session not ready"),
+        @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
+        @ApiResponse(responseCode = "500", description = "Provider error")
+    })
+    @PostMapping("/send-voice")
+    public ResponseEntity<?> sendVoice(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @io.swagger.v3.oas.annotations.media.Content(
+                            mediaType = "application/json",
+                            examples = @io.swagger.v3.oas.annotations.media.ExampleObject(
+                                    name = "sendVoice",
+                                    summary = "Send voice using file path",
+                                    value = """
+                                {
+                                   "session": "wpp_5521999999999",
+                                   "phone": "5521999999999",
+                                   "isGroup": false,
+                                   "path": "/tmp/audio.ogg",
+                                   "quotedMessageId": "message Id"
+                                }
+                                """
+                            )
+                    )
+            )
+            @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+
+        ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+        Object sessionObj = body.get("session");
+        if (sessionObj == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "missing session in request body"));
+        }
+
+        String session = sessionObj.toString();
+
+        ResponseEntity<?> validation = validateRequest(client, session);
         if (!validation.getStatusCode().is2xxSuccessful()) {
             return validation;
         }
 
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
 
-        Map<?, ?> resp = wppService.sendFile(
-                dto.getSession(),
-                token,
-                Map.of(
-                        "phone", dto.getPhone(),
-                        "isGroup", dto.isGroup(),
-                        "filename", dto.getFilename(),
-                        "caption", dto.getCaption() != null ? dto.getCaption() : "",
-                        "base64", dto.getBase64()));
+        // remove session before forwarding to provider
+        body.remove("session");
+
+        Map<?, ?> resp = wppService.sendVoice(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
-        sessionUsageService.recordUsage(dto.getSession());
+        sessionUsageService.recordUsage(session);
 
         return ResponseEntity.ok(resp);
     }
 
     /*
-     * ==========================
-     * Send Voice
-     * ==========================
+ * ==========================
+ * Send Voice (Base64 / PTT)
+ * ==========================
      */
-    @Operation(summary = "Send a voice message (PTT) via WhatsApp")
-    @PostMapping("/send-voice")
-    public ResponseEntity<?> sendVoice(
-            @Valid @RequestBody SendVoiceRequest dto,
+    @Operation(
+            summary = "Send voice message via Base64 (PTT)",
+            description = """
+            Sends a voice message using an existing WhatsApp session.
+            
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+                    
+                    """)
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Voice message sent"),
+        @ApiResponse(responseCode = "400", description = "Invalid request"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+        @ApiResponse(responseCode = "409", description = "Session not ready"),
+        @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
+        @ApiResponse(responseCode = "500", description = "Provider error")
+    })
+    @PostMapping("/send-voice-base64")
+    public ResponseEntity<?> sendVoiceBase64(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @io.swagger.v3.oas.annotations.media.Content(
+                            mediaType = "application/json",
+                            examples = @io.swagger.v3.oas.annotations.media.ExampleObject(
+                                    name = "sendVoiceBase64",
+                                    summary = "Send voice using base64 PTT",
+                                    value = """
+                                {
+                                  "session": "wpp_552199999999",
+                                  "phone": "5521999999999",
+                                  "isGroup": false,
+                                  "base64Ptt": "data:audio/ogg;base64,T2dnUwACAAAAAAAAAABVDx..."
+                                }
+                                """
+                            )
+                    )
+            )
+            @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
 
         ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
-        ResponseEntity<?> validation = validateRequest(client, dto.getSession());
+        Object sessionObj = body.get("session");
+        if (sessionObj == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "missing session in request body"));
+        }
+
+        String session = sessionObj.toString();
+
+        ResponseEntity<?> validation = validateRequest(client, session);
         if (!validation.getStatusCode().is2xxSuccessful()) {
             return validation;
         }
 
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
 
-        Map<?, ?> resp = wppService.sendVoice(
-                dto.getSession(),
-                token,
-                Map.of(
-                        "phone", dto.getPhone(),
-                        "isGroup", dto.isGroup(),
-                        "base64Ptt", dto.getBase64Ptt()));
+        // remove session before forwarding to provider
+        body.remove("session");
+
+        Map<?, ?> resp = wppService.sendVoiceBase64(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
-        sessionUsageService.recordUsage(dto.getSession());
+        sessionUsageService.recordUsage(session);
 
         return ResponseEntity.ok(resp);
     }
+
 
     /*
      * ==========================
      * Send Sticker
      * ==========================
      */
-    @Operation(summary = "Send a sticker via WhatsApp")
+    @Operation(summary = "Send a sticker by path", description = """
+            Sends a sticker message using an existing WhatsApp session.
+            
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+                    
+                    """)
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "File sent successfully"),
+        @ApiResponse(responseCode = "400", description = "Bad Request"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+        @ApiResponse(responseCode = "409", description = "Session not ready"),
+        @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
+        @ApiResponse(responseCode = "500", description = "Failed to send file")
+    })
     @PostMapping("/send-sticker")
     public ResponseEntity<?> sendSticker(
-            @Valid @RequestBody SendStickerRequest dto,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples
+                    = @ExampleObject(name = "send-sticker", summary = "send-sticker example", value = """
+                    {
+                        "session": "wpp_552199999999",
+                        "phone": "5521999999999",
+                        "isGroup": true,
+                        "path": "<path_file>"
+                    }
+                    """))) @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
 
         ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
-        ResponseEntity<?> validation = validateRequest(client, dto.getSession());
+        String session = extractSession(body);
+        ResponseEntity<?> validation = validateRequest(client, session);
         if (!validation.getStatusCode().is2xxSuccessful()) {
             return validation;
         }
 
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
+        body.remove("session");
 
-        Map<?, ?> resp = wppService.sendSticker(
-                dto.getSession(),
-                token,
-                Map.of(
-                        "phone", dto.getPhone(),
-                        "isGroup", dto.isGroup(),
-                        "base64", dto.getBase64()));
+        Map<?, ?> resp = wppService.sendSticker(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
-        sessionUsageService.recordUsage(dto.getSession());
+        sessionUsageService.recordUsage(session);
 
         return ResponseEntity.ok(resp);
     }
+
+    /*
+     * ==========================
+     * Send Sticker gif
+     * ==========================
+     */
+    @Operation(
+            summary = "Send animated sticker (GIF)",
+            description = """
+            Sends a animated sticker message using an existing WhatsApp session.
+            
+            🔐 Authentication
+            - API Key must be provided in header `X-Api-Key`
+            - RapidAPI and internal keys are supported
+            - Authentication, client validation and billing are handled by filter
+                    
+                    """)
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "File sent successfully"),
+        @ApiResponse(responseCode = "400", description = "Bad Request"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+        @ApiResponse(responseCode = "409", description = "Session not ready"),
+        @ApiResponse(responseCode = "429", description = "Daily limit exceeded"),
+        @ApiResponse(responseCode = "500", description = "Failed to send file")
+    })
+
+    @PostMapping("/send-sticker-gif")
+    public ResponseEntity<?> sendStickerGif(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples
+                    = @ExampleObject(name = "send-sticker", summary = "send-sticker example", value = """
+                    {
+                        "session": "wpp_552199999999",
+                        "phone": "5521999999999",
+                        "isGroup": true,
+                        "path": "<path_file>"
+                    }
+                    """))) @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+
+        ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+        String session = extractSession(body);
+        ResponseEntity<?> validation = validateRequest(client, session);
+        if (!validation.getStatusCode().is2xxSuccessful()) {
+            return validation;
+        }
+
+        String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
+        body.remove("session");
+
+        Map<?, ?> resp = wppService.sendStickerGif(session, token, body);
+
+        usageService.increment(client.getApiKey(), 1);
+        sessionUsageService.recordUsage(session);
+
+        return ResponseEntity.ok(resp);
+    }
+
 
     /*
      * ==========================

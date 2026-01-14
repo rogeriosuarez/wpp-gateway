@@ -43,4 +43,5 @@ public class ApiClient {
 
     @Column(name = "last_reset")
     private LocalDate lastReset = LocalDate.now();
+
 }
