@@ -60,89 +60,107 @@ public class MessageController {
             - Authentication, client validation and billing are handled by filter
             """)
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Message sent successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid request"),
-            @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
-            @ApiResponse(responseCode = "409", description = "Session not ready"),
-            @ApiResponse(responseCode = "429", description = "Session daily limit exceeded")
+        @ApiResponse(responseCode = "200", description = "Message sent successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request"),
+        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+        @ApiResponse(responseCode = "409", description = "Session not ready"),
+        @ApiResponse(responseCode = "429", description = "Session daily limit exceeded")
     })
     @PostMapping("/send")
     public ResponseEntity<?> sendMessage(
-
-            @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(schema = @Schema(implementation = SendMessageRequest.class), examples = @ExampleObject(name = "Send text message example", value = """
-                    {
-                      "session": "my-session-01",
-                      "to": "5521999998888",
-                      "message": "Hello! This message was sent via WPP Gateway 🚀"
-                    }
-                    """))) @Valid @RequestBody SendMessageRequest dto,
-
-            HttpServletRequest request) {
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(
+                                    type = "object",
+                                    additionalProperties = @Schema(type = "object")
+                            ),
+                            examples = @ExampleObject(
+                                    name = "Send text message example",
+                                    value = """
+                                {
+                                  "session": "my-session-01",
+                                  "to": "5521999998888",
+                                  "message": "Hello! This message was sent via WPP Gateway 🚀"
+                                }
+                                """
+                            )
+                    )
+            )
+            @RequestBody Map<String, Object> body,
+            HttpServletRequest request
+    ) {
 
         // 🔐 Client already validated by filter
         ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
-        // 1. Validate session existence
-        Optional<SessionEntity> sessionOpt = sessionRepository.findBySessionName(dto.getSession());
+        // 1️⃣ Extract session (minimum validation we still need)
+        String sessionName = (String) body.get("session");
+        if (sessionName == null || sessionName.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "missing session in request body"
+            ));
+        }
+
+        // 2️⃣ Validate session existence
+        Optional<SessionEntity> sessionOpt
+                = sessionRepository.findBySessionName(sessionName);
+
         if (sessionOpt.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "session not found",
-                    "session", dto.getSession()));
+                    "session", sessionName
+            ));
         }
 
         SessionEntity session = sessionOpt.get();
 
-        // 2. Validate session ownership
+        // 3️⃣ Validate ownership
         if (!session.getClientApiKey().equals(client.getApiKey())) {
             return ResponseEntity.status(403).body(Map.of(
                     "error", "session does not belong to client",
-                    "session", dto.getSession()));
+                    "session", sessionName
+            ));
         }
 
-        // 3. Validate session status
-        String status = session.getStatus();
-        if (!"OPEN".equalsIgnoreCase(status)
-                && !"QRCODE".equalsIgnoreCase(status)
-                && !"CONNECTED".equalsIgnoreCase(status)) {
-
-            return ResponseEntity.status(409).body(Map.of(
-                    "error", "session not ready",
-                    "status", status));
-        }
-
-        // 4. Anti-block protection (per session)
-        if (!sessionUsageService.canSendMessage(dto.getSession())) {
-            int used = sessionUsageService.getUsageToday(dto.getSession());
+        // 4️⃣ Anti-block protection (session-level)
+        if (!sessionUsageService.canSendMessage(sessionName)) {
+            int used = sessionUsageService.getUsageToday(sessionName);
             return ResponseEntity.status(429).body(Map.of(
                     "error", "session daily limit exceeded (anti-block protection)",
                     "limit", 450,
                     "used", used,
-                    "session", dto.getSession()));
+                    "session", sessionName
+            ));
         }
 
-        // 5. Validate token
+        // 5️⃣ Validate token presence
         if (session.getWppToken() == null) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "wpp token missing for session",
-                    "session", dto.getSession()));
+                    "session", sessionName
+            ));
         }
 
-        // 6. Send message
-        Map<?, ?> response = wppService.sendMessage(
-                dto.getSession(),
+        // 6️⃣ Forward AS-IS to WPPConnect
+        ResponseEntity<?> response = wppService.sendMessage(
+                sessionName,
                 session.getWppToken(),
-                dto.getTo(),
-                dto.getMessage());
+                body
+        );
 
-        // 7. Register session usage
-        sessionUsageService.recordUsage(dto.getSession());
+        // 7️⃣ Register usage (only after provider call)
+        sessionUsageService.recordUsage(sessionName);
 
         logger.debug(
-                "MESSAGE_SENT | client={} | session={} | to={}",
+                "MESSAGE_FORWARD | client={} | session={}",
                 client.getId(),
-                dto.getSession(),
-                dto.getTo());
+                sessionName
+        );
 
-        return ResponseEntity.ok(response);
+        // 🔥 Return provider response AS-IS
+        return response;
     }
+
 }

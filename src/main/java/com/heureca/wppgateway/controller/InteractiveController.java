@@ -180,7 +180,7 @@ public class InteractiveController {
         // 🔥 remove session before forwarding
         body.remove("session");
 
-        Map<?, ?> response = switch (type) {
+        ResponseEntity<?> response = switch (type) {
             case LIST -> wppService.sendListMessage(sessionName, token, body);
             case POLL -> wppService.sendPollMessage(sessionName, token, body);
         };

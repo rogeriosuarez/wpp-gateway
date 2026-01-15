@@ -154,7 +154,7 @@ public class MediaController {
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
         body.remove("session");
 
-        Map<?, ?> resp = wppService.sendImageBase64(session, token, body);
+        ResponseEntity<?> resp = wppService.sendImageBase64(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(session);
@@ -208,7 +208,7 @@ public class MediaController {
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
         body.remove("session");
 
-        Map<?, ?> resp = wppService.sendImagePath(session, token, body);
+        ResponseEntity<?> resp = wppService.sendImagePath(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(session);
@@ -266,7 +266,7 @@ public class MediaController {
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
         body.remove("session");
 
-        Map<?, ?> resp = wppService.sendFileBase64(session, token, body);
+        ResponseEntity<?> resp = wppService.sendFileBase64(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(session);
@@ -325,7 +325,7 @@ public class MediaController {
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
         body.remove("session");
 
-        Map<?, ?> resp = wppService.sendFile(session, token, body);
+        ResponseEntity<?> resp = wppService.sendFile(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(session);
@@ -403,7 +403,7 @@ public class MediaController {
         // remove session before forwarding to provider
         body.remove("session");
 
-        Map<?, ?> resp = wppService.sendVoice(session, token, body);
+        ResponseEntity<?> resp = wppService.sendVoice(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(session);
@@ -479,7 +479,7 @@ public class MediaController {
         // remove session before forwarding to provider
         body.remove("session");
 
-        Map<?, ?> resp = wppService.sendVoiceBase64(session, token, body);
+        ResponseEntity<?> resp = wppService.sendVoiceBase64(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(session);
@@ -535,7 +535,7 @@ public class MediaController {
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
         body.remove("session");
 
-        Map<?, ?> resp = wppService.sendSticker(session, token, body);
+        ResponseEntity<?> resp = wppService.sendSticker(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(session);
@@ -593,7 +593,7 @@ public class MediaController {
         String token = (String) ((Map<?, ?>) validation.getBody()).get("token");
         body.remove("session");
 
-        Map<?, ?> resp = wppService.sendStickerGif(session, token, body);
+        ResponseEntity<?> resp = wppService.sendStickerGif(session, token, body);
 
         usageService.increment(client.getApiKey(), 1);
         sessionUsageService.recordUsage(session);
