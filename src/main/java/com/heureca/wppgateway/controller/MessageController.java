@@ -64,7 +64,7 @@ public class MessageController {
                         @ApiResponse(responseCode = "409", description = "Session not ready"),
                         @ApiResponse(responseCode = "429", description = "Session daily limit exceeded")
         })
-        @PostMapping("/send")
+        @PostMapping("/send-text")
         public ResponseEntity<?> sendMessage(
                         @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples = @ExampleObject(name = "Send text message example", value = """
                                         {

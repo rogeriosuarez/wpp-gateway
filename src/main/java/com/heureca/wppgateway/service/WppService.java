@@ -190,23 +190,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-poll-message"
-        );
-    }
-
-    public ResponseEntity<?> sendImagePath(
-            String session,
-            String token,
-            Map<String, Object> body
-    ) {
-        String url = String.format("%s/api/%s/send-image", wppBaseUrl, session);
-
-        return forwardToWppConnect(
-                token,
-                url,
-                HttpMethod.POST,
-                body,
-                "send-image"
+                "send-image-base64"
         );
     }
 
