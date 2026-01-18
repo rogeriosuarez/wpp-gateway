@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.heureca.wppgateway.config.OpenApiConfig;
 import com.heureca.wppgateway.model.ApiClient;
 import com.heureca.wppgateway.model.SessionEntity;
 import com.heureca.wppgateway.repository.SessionRepository;
@@ -30,7 +31,7 @@ import jakarta.servlet.http.HttpServletRequest;
 @RestController
 @RequestMapping("/api/interactive")
 @Tag(name = "Interactive", description = "Send interactive WhatsApp messages (passthrough to WPPConnect)")
-@SecurityRequirement(name = "ApiKeyAuth")
+@SecurityRequirement(name = OpenApiConfig.SECURITY_SCHEME_NAME)
 public class InteractiveController {
 
     private final UsageService usageService;

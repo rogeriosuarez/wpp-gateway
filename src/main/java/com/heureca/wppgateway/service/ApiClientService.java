@@ -35,8 +35,8 @@ public class ApiClientService {
         return repository.save(client);
     }
 
-    public ApiClient validateInternalClient(String apiKey) {
-        return repository.findByApiKey(apiKey)
+    public ApiClient validateInternalClient(String apiKey, ClientSource rapid) {
+        return repository.findByApiKeyAndSource(apiKey, rapid)
                 .orElseThrow(() -> new UnauthorizedException("Invalid API Key"));
     }
 
@@ -59,11 +59,11 @@ public class ApiClientService {
         }
     }
 
-    public ApiClient createInternalClient(String name, Long dailyLimit) {
+    public ApiClient createClient(String name, Long dailyLimit, ClientSource clientSource) {
         ApiClient client = new ApiClient();
         client.setApiKey(ApiKeyGenerator.generate());
         client.setName(name);
-        client.setSource(ClientSource.INTERNAL);
+        client.setSource(clientSource);
         client.setDailyLimit(dailyLimit); // unlimited
         client.setDailyUsage(0L);
         return repository.save(client);

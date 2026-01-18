@@ -65,10 +65,12 @@ logging:
     org.springframework.web: INFO
 
 springdoc:
-  paths-to-exclude: /admin/**
+  # paths-to-exclude: /admin/**
   api-docs:
     enabled: true
     path: /v3/api-docs
   swagger-ui:
     enabled: true
     path: /swagger-ui.html
+app:
+  version: 1.0.3

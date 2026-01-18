@@ -1,5 +1,6 @@
 package com.heureca.wppgateway.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -9,25 +10,27 @@ import io.swagger.v3.oas.models.info.Contact;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
-import io.swagger.v3.oas.models.servers.Server;
-import io.swagger.v3.oas.models.tags.Tag;
 
 @Configuration
 public class OpenApiConfig {
-
-        public static final String SECURITY_SCHEME_NAME = "ApiKeyAuth";
+        public static final String SECURITY_SCHEME_NAME = "InternalApiKey";
+        @Value("${app.version:dev}")
+        private String appVersion;
 
         @Bean
         public OpenAPI wppGatewayOpenAPI() {
 
                 return new OpenAPI()
                                 .info(apiInfo())
+                                .components(
+                                                new Components()
+                                                                .addSecuritySchemes(SECURITY_SCHEME_NAME,
+                                                                                internalApiKeyScheme())
+                                                                .addSecuritySchemes("RapidApiKey", rapidApiKeyScheme())
+                                                                )
+                                // 🔐 Default security = INTERNAL
                                 .addSecurityItem(
-                                                new SecurityRequirement().addList(SECURITY_SCHEME_NAME))
-                                .components(new Components()
-                                                .addSecuritySchemes(
-                                                                SECURITY_SCHEME_NAME,
-                                                                apiKeyScheme()));
+                                                new SecurityRequirement().addList(SECURITY_SCHEME_NAME));
         }
 
         private Info apiInfo() {
@@ -56,26 +59,41 @@ public class OpenApiConfig {
                                                 - Chatbots
                                                 - Notification services
                                                 """)
-                                .version("1.0.0")
+                                .version(appVersion)
                                 .contact(new Contact()
                                                 .name("HeurecaAI Support")
                                                 .email("support@heurecaai.com")
                                                 .url("https://heurecaai.com"));
         }
 
-        private SecurityScheme apiKeyScheme() {
+        private SecurityScheme internalApiKeyScheme() {
                 return new SecurityScheme()
-                                .name("X-Api-Key")
                                 .type(SecurityScheme.Type.APIKEY)
                                 .in(SecurityScheme.In.HEADER)
+                                .name("X-Api-Key")
                                 .description("""
-                                                API Key authentication.
+                                                🔐 Internal API Key authentication
 
-                                                🔐 This API supports:
-                                                - RapidAPI keys (sent automatically as `X-RapidAPI-Key`)
-                                                - Internal API keys (sent as `X-Api-Key`)
+                                                - Required for all internal and RapidAPI calls
+                                                - Issued via /admin/create-client
+                                                - MUST be sent as header: X-Api-Key
 
-                                                ⚠️ When using RapidAPI Marketplace, do NOT send X-Api-Key manually.
-                                                                                              """);
+                                                ⚠️ When calling via RapidAPI, this key is STILL REQUIRED.
+                                                """);
         }
+
+        private SecurityScheme rapidApiKeyScheme() {
+                return new SecurityScheme()
+                                .type(SecurityScheme.Type.APIKEY)
+                                .in(SecurityScheme.In.HEADER)
+                                .name("X-RapidAPI-Proxy-Secret")
+                                .description("""
+                                                🔥 RapidAPI Gateway authentication
+
+                                                - Automatically injected by RapidAPI
+                                                - DO NOT send this header manually
+                                                - Used to validate calls coming from RapidAPI infrastructure
+                                                """);
+        }
+
 }
