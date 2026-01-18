@@ -36,38 +36,35 @@ public class AuthController {
                 this.apiClientService = clientService;
         }
 
-        /**
-         * Creates an ApiClient and returns an X-Api-Key.
-         *
-         * This endpoint is used to bootstrap authentication.
-         * The returned apiKey must be used in all subsequent requests.
-         *
-         * 🔐 Authentication:
-         * - No X-Api-Key required for this endpoint
-         * - Client source (RAPID or INTERNAL) is inferred automatically
-         */
-        @Operation(summary = "Create API client", description = """
-                        Creates a new API client and returns an X-Api-Key.
+        // /**
+        //  * Creates an ApiClient and returns an X-Api-Key.
+        //  *
+        //  * This endpoint is used to bootstrap authentication.
+        //  * The returned apiKey must be used in all subsequent requests.
+        //  *
+        //  * 🔐 Authentication:
+        //  * - No X-Api-Key required for this endpoint
+        //  * - Client source (RAPID or INTERNAL) is inferred automatically
+        //  */
+        // @Operation(summary = "Create API client", description = """
+        //                 Creates a new API client and returns an X-Api-Key.
 
-                        This endpoint is used to bootstrap authentication.
+        //                 This endpoint is used to bootstrap authentication.
 
-                        The returned X-Api-Key must be sent in the `X-Api-Key` header
-                        for all subsequent requests.
-                        """, security = {
-                        @SecurityRequirement(name = "RapidApiKey")
-        } // 👈 sobrescreve o security global
-        )
-        @ApiResponses({
-                        @ApiResponse(responseCode = "201", description = "Client created successfully", content = @Content(mediaType = "application/json", schema = @Schema(example = """
-                                        {
-                                          "name": "my-client",
-                                          "X-Api-Key": "c155a442fe534c1f9960ea5b5d4a9b65",
-                                          "type": "RAPID"
-                                        }
-                                        """))),
-                        @ApiResponse(responseCode = "400", description = "Invalid request"),
-                        @ApiResponse(responseCode = "500", description = "Internal error")
-        })
+        //                 The returned X-Api-Key must be sent in the `X-Api-Key` header
+        //                 for all subsequent requests.
+        //                 """)
+        // @ApiResponses({
+        //                 @ApiResponse(responseCode = "201", description = "Client created successfully", content = @Content(mediaType = "application/json", schema = @Schema(example = """
+        //                                 {
+        //                                   "name": "my-client",
+        //                                   "X-Api-Key": "c155a442fe534c1f9960ea5b5d4a9b65",
+        //                                   "type": "RAPID"
+        //                                 }
+        //                                 """))),
+        //                 @ApiResponse(responseCode = "400", description = "Invalid request"),
+        //                 @ApiResponse(responseCode = "500", description = "Internal error")
+        // })
         @PostMapping("/create-client")
         public ResponseEntity<?> createClient(
                         HttpServletRequest request,

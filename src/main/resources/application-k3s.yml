@@ -78,6 +78,7 @@ logging:
     console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
 springdoc:
+  paths-to-exclude: /admin/**
   api-docs:
     enabled: true
     path: /v3/api-docs
@@ -85,4 +86,4 @@ springdoc:
     enabled: true
     path: /swagger-ui.html
 app:
-  version: 1.0.3
+  version: 1.0.5

@@ -44,7 +44,6 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
                 || path.startsWith("/swagger-ui")
                 || path.startsWith("/swagger-ui.html")
                 || path.startsWith("/actuator");
-        // ❗ NÃO ignorar /admin
     }
 
     @Override
@@ -54,63 +53,52 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
             FilterChain filterChain)
             throws ServletException, IOException {
 
+        String rapidUser = request.getHeader("X-RapidAPI-User");
+        String rapidSubscription = request.getHeader("X-RapidAPI-Subscription");
+        // String rapidVersion = request.getHeader("X-RapidAPI-Version");
+
         String rapidHost = request.getHeader("X-RapidAPI-Host");
         String rapidProxySecret = request.getHeader("X-RapidAPI-Proxy-Secret");
+
         String internalKey = request.getHeader("X-Api-Key");
         String path = request.getRequestURI();
 
+        logger.debug("Rapid headers | user={} | subscription={}",
+                rapidUser, rapidSubscription);
+
         try {
-            ApiClient client = null;
+            ApiClient client;
 
             // ==========================
-            // 🔥 Fluxo RapidAPI
+            // 🔥 Fluxo RapidAPI (PRIORITÁRIO)
             // ==========================
-            if (rapidHost != null && rapidProxySecret != null) {
+            if (rapidUser != null && rapidHost != null && rapidProxySecret != null) {
 
                 if (!RAPIDAPI_PROXY_SECRET.equals(rapidProxySecret)) {
                     throw new UnauthorizedException("Invalid RapidAPI proxy origin");
                 }
 
-                // 🟡 RapidAPI SEM X-Api-Key
-                if (internalKey == null) {
-
-                    // ✅ Permite APENAS criar o client
-                    if (path.equals("/admin/create-client")) {
-                        logger.debug(
-                                "RapidAPI bootstrap request allowed: {}",
-                                path);
-                        request.setAttribute("clientSource", ClientSource.RAPID);
-                        filterChain.doFilter(request, response);
-                        return;
-                    }
-
-                    logger.debug(
-                            "RapidAPI request missing X-Api-Key | path={}",
-                            path);
-                    throw new UnauthorizedException("Missing API key");
-                }
-
-                // 🔐 RapidAPI COM X-Api-Key
-                client = clientService.validateInternalClient(internalKey, ClientSource.RAPID);
+                // 🔐 Resolve ou cria o cliente via RapidUser
+                client = clientService.getOrCreateRapidClient(rapidUser);
 
             // ==========================
-            // 🔐 Fluxo cliente interno
+            // 🔐 Fluxo cliente interno / admin
             // ==========================
             } else if (internalKey != null) {
 
-                ClientSource source = (path.equals("/admin/create-client"))?ClientSource.ADMIN:ClientSource.INTERNAL;
-                client = clientService.validateInternalClient(internalKey,source);
+                ClientSource source =
+                        path.startsWith("/admin")
+                                ? ClientSource.ADMIN
+                                : ClientSource.INTERNAL;
+
+                client = clientService.validateInternalClient(internalKey, source);
+                request.setAttribute("clientSource", source);
 
             // ==========================
             // ❌ Nenhuma credencial
             // ==========================
             } else {
-                logger.debug(
-                        "Unauthorized request | rapidHost={} | rapidProxySecret={} | internalKey={}",
-                        rapidHost != null,
-                        rapidProxySecret != null,
-                        internalKey != null);
-                throw new UnauthorizedException("Missing API key");
+                throw new UnauthorizedException("Missing authentication credentials");
             }
 
             // ==========================
@@ -118,12 +106,8 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
             // ==========================
             if (path.startsWith("/admin")
                     && client.getSource() != ClientSource.ADMIN) {
-                logger.debug(
-                        "Admin access denied | clientSource={}",
-                        client.getSource());
                 throw new UnauthorizedException("Admin privileges required");
             }
-            request.setAttribute("clientSource", ClientSource.INTERNAL);
 
             // ==========================
             // 🚦 Rate limit centralizado
@@ -148,6 +132,7 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
                     ex.getMessage());
 
         } catch (Exception ex) {
+            logger.error("Authentication error", ex);
             response.sendError(
                     HttpStatus.INTERNAL_SERVER_ERROR.value(),
                     "Internal authentication error");

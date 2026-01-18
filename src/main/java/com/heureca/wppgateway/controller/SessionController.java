@@ -28,7 +28,6 @@ import com.heureca.wppgateway.service.WppService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
-import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -55,108 +54,85 @@ public class SessionController {
         }
 
         // =========================================================
-        // CREATE SESSION
-        // =========================================================
-
-        @Operation(summary = "Create a WhatsApp session", description = """
-                        Creates a new WhatsApp session for a phone number.
-
-                        ### Rules
-                        - Each phone number can belong to only ONE client
-                        - If the phone already exists for the same client, the token is refreshed
-                        - Authentication is handled globally via API Key
-                        """)
-        @ApiResponses({
-                        @ApiResponse(responseCode = "200", description = "Session created or token refreshed", content = @Content(mediaType = "application/json", examples = @ExampleObject(name = "Session created", value = """
-                                        {
-                                          "action": "session_created",
-                                          "session": "wpp_5511999999999",
-                                          "phone": "5511999999999",
-                                          "status": "TOKEN_CREATED"
-                                        }
-                                        """))),
-                        @ApiResponse(responseCode = "400", description = "Invalid phone number"),
-                        @ApiResponse(responseCode = "403", description = "Phone already registered by another client"),
-                        @ApiResponse(responseCode = "401", description = "Missing or invalid API Key")
-        })
-        @PostMapping("/create-session")
-        public ResponseEntity<?> createSession(
-                        HttpServletRequest request,
-                        @Valid @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(schema = @Schema(implementation = CreateSessionRequest.class), examples = @ExampleObject(name = "Create session example", value = """
-                                        {
-                                          "phone": "+55 (11) 99999-9999",
-                                          "description": "Main sales WhatsApp"
-                                        }
-                                        """))) @RequestBody CreateSessionRequest dto) {
-
-                ApiClient client = (ApiClient) request.getAttribute("apiClient");
-
-                if (!dto.isPhoneValid()) {
-                        return ResponseEntity.badRequest().body(Map.of(
-                                        "error", "invalid phone number format",
-                                        "phone", dto.getPhone()));
-                }
-
-                String cleanPhone = dto.getCleanPhone();
-                String sessionName = "wpp_" + cleanPhone;
-
-                Optional<SessionEntity> existingOpt = sessionRepository.findByPhone(cleanPhone);
-
-                if (existingOpt.isPresent()) {
-                        SessionEntity existing = existingOpt.get();
-
-                        if (!existing.getClientApiKey().equals(client.getApiKey())) {
-                                return ResponseEntity.status(403).body(Map.of(
-                                                "error", "phone already registered by another client",
-                                                "phone", cleanPhone));
-                        }
-
-                        return updateSessionToken(existing);
-                }
-
-                return createNewSession(
-                                client.getApiKey(),
-                                cleanPhone,
-                                sessionName,
-                                dto.getDescription());
-        }
-
-        // =========================================================
-        // START SESSION
+        // START SESSION (CREATE IF NOT EXISTS)
         // =========================================================
 
         @Operation(summary = "Start a WhatsApp session", description = """
-                        Starts a previously created WhatsApp session.
+                        Starts a WhatsApp session for a phone number.
 
-                        This step is required to generate QR Code or establish connection.
+                        This is the main entry point of the API.
+
+                        ### Behavior
+                        - If the session does not exist, it is created automatically
+                        - If it exists and belongs to the same client, it is reused
                         """)
         @ApiResponses({
-                        @ApiResponse(responseCode = "200", description = "Session started"),
-                        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
-                        @ApiResponse(responseCode = "404", description = "Session not found")
+                        @ApiResponse(responseCode = "200", description = "Session started", content = @Content(mediaType = "application/json", examples = @ExampleObject(value = """
+                                        {
+                                          "action": "session_started",
+                                          "session": "wpp_5511999999999",
+                                          "phone": "5511999999999",
+                                          "status": "WAITING_QRCODE"
+                                        }
+                                        """))),
+                        @ApiResponse(responseCode = "400", description = "Invalid phone number"),
+                        @ApiResponse(responseCode = "403", description = "Phone already registered by another client")
         })
-        @PostMapping("/start-session/{session}")
+        @PostMapping("/start-session/{phone}")
         public ResponseEntity<?> startSession(
                         HttpServletRequest request,
-                        @PathVariable String session) {
+                        @PathVariable String phone) {
 
                 ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
-                SessionEntity s = sessionRepository.findBySessionName(session)
-                                .orElseThrow(() -> new RuntimeException("session not found"));
-
-                if (!s.getClientApiKey().equals(client.getApiKey())) {
-                        return ResponseEntity.status(403).body(Map.of(
-                                        "error", "session does not belong to client"));
+                String cleanPhone = phone.replaceAll("\\D", "");
+                if (cleanPhone.length() < 10) {
+                        return ResponseEntity.badRequest().body(Map.of(
+                                        "error", "invalid phone number",
+                                        "phone", phone));
                 }
 
-                Map<?, ?> resp = wppService.startSession(session, s.getWppToken());
-                logger.debug("WPPCONNECT RESPONSE: {}", resp);
+                // 🔑 Identidade real: client + phone
+                Optional<SessionEntity> opt = sessionRepository.findByClientApiKeyAndPhone(
+                                client.getApiKey(),
+                                cleanPhone);
 
-                s.setStatus(Objects.toString(resp.get("status"), "UNKNOWN"));
-                sessionRepository.save(s);
+                SessionEntity session;
 
-                return ResponseEntity.ok(resp);
+                if (opt.isPresent()) {
+                        session = opt.get();
+                } else {
+                        // 🔹 Criação implícita
+                        String sessionName = "wpp_" + cleanPhone;
+
+                        session = new SessionEntity();
+                        session.setClientApiKey(client.getApiKey());
+                        session.setPhone(cleanPhone);
+                        session.setSessionName(sessionName);
+                        session.setStatus("CREATED");
+
+                        sessionRepository.save(session);
+
+                        Map<?, ?> tokenResp = wppService.generateWppToken(sessionName);
+                        session.setWppToken(Objects.toString(tokenResp.get("token"), null));
+                        session.setStatus("TOKEN_CREATED");
+
+                        sessionRepository.save(session);
+                }
+
+                // 🔥 Start real no provider
+                Map<?, ?> providerResp = wppService.startSession(
+                                session.getSessionName(),
+                                session.getWppToken());
+
+                session.setStatus(
+                                Objects.toString(providerResp.get("status"), "UNKNOWN"));
+                sessionRepository.save(session);
+
+                return ResponseEntity.ok(Map.of(
+                                "session", session.getSessionName(),
+                                "phone", session.getPhone(),
+                                "provider", providerResp));
         }
 
         // =========================================================
@@ -169,10 +145,10 @@ public class SessionController {
                         This endpoint acts as a transparent proxy and does NOT rely on local database state.
                         """)
         @ApiResponses({
-                        @ApiResponse(responseCode = "200", description = "Session status retrieved from provider"),
+                        @ApiResponse(responseCode = "200", description = "Session status retrieved"),
                         @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
                         @ApiResponse(responseCode = "404", description = "Session not found"),
-                        @ApiResponse(responseCode = "424", description = "Failed to retrieve status from provider")
+                        @ApiResponse(responseCode = "424", description = "Failed to retrieve status")
         })
         @GetMapping("/{session}/status-session")
         public ResponseEntity<?> getSessionStatus(
@@ -182,6 +158,7 @@ public class SessionController {
                 ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
                 Optional<SessionEntity> opt = sessionRepository.findBySessionName(session);
+
                 if (opt.isEmpty()) {
                         return ResponseEntity.status(404).body(Map.of(
                                         "error", "session not found",
@@ -206,7 +183,7 @@ public class SessionController {
                         return ResponseEntity.ok(providerResp);
 
                 } catch (Exception e) {
-                        logger.error("Failed to retrieve session status from WPPCONNECT", e);
+                        logger.error("Failed to retrieve session status", e);
                         return ResponseEntity.status(424).body(Map.of(
                                         "error", "failed_to_fetch_session_status",
                                         "message", e.getMessage()));
@@ -214,26 +191,17 @@ public class SessionController {
         }
 
         // =========================================================
-        // DELETE SESSION
+        // DELETE SESSION (LOGOUT)
         // =========================================================
 
-        @Operation(summary = "Delete (revoke) a WhatsApp session", description = """
-                        Revokes a WhatsApp session and releases the phone number.
+        @Operation(summary = "Logout a WhatsApp session", description = """
+                        Logs out a WhatsApp session and releases the phone number.
 
-                        ### Rules
-                        - Only the owner API Key can delete a session
-                        - The session is logged out and closed in the WhatsApp provider
-                        - After deletion, the phone number can be reused
+                        - Only the owner can logout
+                        - Session is closed in the provider
                         """)
         @ApiResponses({
-                        @ApiResponse(responseCode = "200", description = "Session revoked", content = @Content(mediaType = "application/json", examples = @ExampleObject(value = """
-                                        {
-                                          "action": "session_revoked",
-                                          "session": "wpp_5511999999999",
-                                          "phone": "5511999999999",
-                                          "status": "REVOKED"
-                                        }
-                                        """))),
+                        @ApiResponse(responseCode = "200", description = "Session logged out"),
                         @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
                         @ApiResponse(responseCode = "404", description = "Session not found")
         })
@@ -252,12 +220,14 @@ public class SessionController {
                                         "error", "session does not belong to client"));
                 }
 
-                // Best-effort cleanup on WPPConnect
                 try {
-                        wppService.safeLogoutAndClose(session, s.getWppToken());
+                        wppService.safeLogoutAndClose(
+                                        session,
+                                        s.getWppToken());
                 } catch (Exception e) {
-                        logger.warn("Failed to cleanup session on WPPCONNECT: {}", e.getMessage());
-                        // NÃO falha o delete por causa do provider
+                        logger.warn(
+                                        "Failed to cleanup session on provider: {}",
+                                        e.getMessage());
                 }
 
                 sessionRepository.delete(s);
@@ -277,8 +247,9 @@ public class SessionController {
         })
 
         // =========================================================
-        // GET QR CODE (base64 - INTEGRATION FRIENDLY)
+        // GET QR CODE (BASE64)
         // =========================================================
+
         @GetMapping("/{session}/qrcode/base64")
         public ResponseEntity<?> getQrCodeBase64(
                         HttpServletRequest request,
@@ -287,6 +258,7 @@ public class SessionController {
                 ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
                 Optional<SessionEntity> opt = sessionRepository.findBySessionName(session);
+
                 if (opt.isEmpty()) {
                         return ResponseEntity.status(404).body(Map.of(
                                         "error", "session not found",
@@ -301,14 +273,15 @@ public class SessionController {
                 }
 
                 try {
-                        byte[] png = wppService.fetchQrCodeImage(session, s.getWppToken());
-                        String base64 = Base64.getEncoder().encodeToString(png);
+                        byte[] png = wppService.fetchQrCodeImage(
+                                        session,
+                                        s.getWppToken());
 
                         return ResponseEntity.ok(Map.of(
                                         "type", "image",
                                         "format", "png",
                                         "encoding", "base64",
-                                        "data", base64,
+                                        "data", Base64.getEncoder().encodeToString(png),
                                         "size_bytes", png.length,
                                         "message", "Scan with WhatsApp"));
 
@@ -321,7 +294,7 @@ public class SessionController {
         }
 
         // =========================================================
-        // GET QR CODE (IMAGE - BROWSER FRIENDLY)
+        // GET QR CODE (IMAGE)
         // =========================================================
 
         @Operation(summary = "Get WhatsApp session QR Code (PNG)", description = "Returns the QR Code image for the session. Can be scanned directly.")
@@ -339,6 +312,7 @@ public class SessionController {
                 ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
                 Optional<SessionEntity> opt = sessionRepository.findBySessionName(session);
+
                 if (opt.isEmpty()) {
                         return ResponseEntity.status(404).body(Map.of(
                                         "error", "session not found",
@@ -353,7 +327,10 @@ public class SessionController {
                 }
 
                 try {
-                        byte[] png = wppService.fetchQrCodeImage(session, s.getWppToken());
+                        byte[] png = wppService.fetchQrCodeImage(
+                                        session,
+                                        s.getWppToken());
+
                         return ResponseEntity.ok()
                                         .contentType(MediaType.IMAGE_PNG)
                                         .body(png);
@@ -365,53 +342,4 @@ public class SessionController {
                                         "message", e.getMessage()));
                 }
         }
-
-        // =========================================================
-        // INTERNAL HELPERS
-        // =========================================================
-
-        private ResponseEntity<?> updateSessionToken(SessionEntity s) {
-                Map<?, ?> tokenResp = wppService.generateWppToken(s.getSessionName());
-
-                s.setWppToken(Objects.toString(tokenResp.get("token"), null));
-                s.setStatus("TOKEN_UPDATED");
-                s.setCreatedAt(LocalDateTime.now());
-
-                sessionRepository.save(s);
-
-                return ResponseEntity.ok(Map.of(
-                                "action", "token_updated",
-                                "session", s.getSessionName(),
-                                "phone", s.getPhone(),
-                                "status", s.getStatus()));
-        }
-
-        private ResponseEntity<?> createNewSession(
-                        String apiKey,
-                        String phone,
-                        String sessionName,
-                        String description) {
-
-                SessionEntity s = new SessionEntity();
-                s.setSessionName(sessionName);
-                s.setClientApiKey(apiKey);
-                s.setPhone(phone);
-                s.setDescription(description);
-                s.setStatus("CREATED");
-
-                sessionRepository.save(s);
-
-                Map<?, ?> tokenResp = wppService.generateWppToken(sessionName);
-                s.setWppToken(Objects.toString(tokenResp.get("token"), null));
-                s.setStatus("TOKEN_CREATED");
-
-                sessionRepository.save(s);
-
-                return ResponseEntity.ok(Map.of(
-                                "action", "session_created",
-                                "session", sessionName,
-                                "phone", phone,
-                                "status", s.getStatus()));
-        }
-
 }

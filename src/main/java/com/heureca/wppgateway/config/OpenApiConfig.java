@@ -13,7 +13,7 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 
 @Configuration
 public class OpenApiConfig {
-        public static final String SECURITY_SCHEME_NAME = "InternalApiKey";
+        public static final String SECURITY_SCHEME_NAME = "ApiKeyAuth";
         @Value("${app.version:dev}")
         private String appVersion;
 
@@ -26,7 +26,7 @@ public class OpenApiConfig {
                                                 new Components()
                                                                 .addSecuritySchemes(SECURITY_SCHEME_NAME,
                                                                                 internalApiKeyScheme())
-                                                                .addSecuritySchemes("RapidApiKey", rapidApiKeyScheme())
+                                                                // .addSecuritySchemes("RapidApiKey", rapidApiKeyScheme())
                                                                 )
                                 // 🔐 Default security = INTERNAL
                                 .addSecurityItem(
@@ -82,18 +82,18 @@ public class OpenApiConfig {
                                                 """);
         }
 
-        private SecurityScheme rapidApiKeyScheme() {
-                return new SecurityScheme()
-                                .type(SecurityScheme.Type.APIKEY)
-                                .in(SecurityScheme.In.HEADER)
-                                .name("X-RapidAPI-Proxy-Secret")
-                                .description("""
-                                                🔥 RapidAPI Gateway authentication
+        // private SecurityScheme rapidApiKeyScheme() {
+        //         return new SecurityScheme()
+        //                         .type(SecurityScheme.Type.APIKEY)
+        //                         .in(SecurityScheme.In.HEADER)
+        //                         .name("X-RapidAPI-Proxy-Secret")
+        //                         .description("""
+        //                                         🔥 RapidAPI Gateway authentication
 
-                                                - Automatically injected by RapidAPI
-                                                - DO NOT send this header manually
-                                                - Used to validate calls coming from RapidAPI infrastructure
-                                                """);
-        }
+        //                                         - Automatically injected by RapidAPI
+        //                                         - DO NOT send this header manually
+        //                                         - Used to validate calls coming from RapidAPI infrastructure
+        //                                         """);
+        // }
 
 }
