@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.heureca.wppgateway.config.OpenApiConfig;
 import com.heureca.wppgateway.dto.CreateSessionRequest;
 import com.heureca.wppgateway.model.ApiClient;
+import com.heureca.wppgateway.model.ClientSource;
 import com.heureca.wppgateway.model.SessionEntity;
 import com.heureca.wppgateway.repository.SessionRepository;
 import com.heureca.wppgateway.service.WppService;
@@ -103,7 +104,7 @@ public class SessionController {
                         session = opt.get();
                 } else {
                         // 🔹 Criação implícita
-                        String sessionName = "wpp_" + cleanPhone;
+                        String sessionName = buildSessionName(client, cleanPhone);
 
                         session = new SessionEntity();
                         session.setClientApiKey(client.getApiKey());
@@ -133,6 +134,32 @@ public class SessionController {
                                 "session", session.getSessionName(),
                                 "phone", session.getPhone(),
                                 "provider", providerResp));
+        }
+
+        private String buildSessionName(ApiClient client, String cleanPhone) {
+
+                String prefix;
+
+                if (client.getSource() == ClientSource.RAPID) {
+                        // 🔹 Legível para RapidAPI
+                        String slug = client.getApiKey()
+                                        .toLowerCase()
+                                        .replaceAll("[^a-z0-9]", "_")
+                                        .replaceAll("_+", "_");
+
+                        if (slug.length() > 20) {
+                                slug = slug.substring(0, 20);
+                        }
+
+                        prefix = slug;
+
+                } else {
+                        // 🔹 Curto para internal/admin
+                        prefix = Integer.toHexString(
+                                        Math.abs(client.getApiKey().hashCode()));
+                }
+
+                return "wpp_" + prefix + "_" + cleanPhone;
         }
 
         // =========================================================
