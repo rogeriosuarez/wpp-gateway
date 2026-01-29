@@ -1,13 +1,15 @@
 package com.heureca.wppgateway.controller;
 
-import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -17,11 +19,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.heureca.wppgateway.config.OpenApiConfig;
-import com.heureca.wppgateway.dto.CreateSessionRequest;
 import com.heureca.wppgateway.model.ApiClient;
-import com.heureca.wppgateway.model.ClientSource;
+import com.heureca.wppgateway.model.ProviderSessionState;
 import com.heureca.wppgateway.model.SessionEntity;
 import com.heureca.wppgateway.repository.SessionRepository;
 import com.heureca.wppgateway.service.WppService;
@@ -34,7 +36,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api")
@@ -79,18 +80,30 @@ public class SessionController {
                         @ApiResponse(responseCode = "400", description = "Invalid phone number"),
                         @ApiResponse(responseCode = "403", description = "Phone already registered by another client")
         })
-        @PostMapping("/start-session/{phone}")
+        @PostMapping("/start-session")
         public ResponseEntity<?> startSession(
                         HttpServletRequest request,
-                        @PathVariable String phone) {
+                        @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples = @ExampleObject(name = "send-list-message", summary = "Interactive list example", value = """
+                                        {
+                                          "phone": "552199999999",
+                                          "waitQrCode": false,
+                                          "webhook": "<webhook-link>"
+                                        }"""))) @RequestBody Map<String, Object> body) {
 
                 ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
-                String cleanPhone = phone.replaceAll("\\D", "");
+                Object phoneObj = body.get("phone");
+                if (phoneObj == null) {
+                        return ResponseEntity.badRequest().body(Map.of(
+                                        "error", "missing_phone",
+                                        "message", "phone is required"));
+                }
+
+                String cleanPhone = phoneObj.toString().replaceAll("\\D", "");
                 if (cleanPhone.length() < 10) {
                         return ResponseEntity.badRequest().body(Map.of(
-                                        "error", "invalid phone number",
-                                        "phone", phone));
+                                        "error", "invalid_phone",
+                                        "phone", phoneObj));
                 }
 
                 // 🔑 Identidade real: client + phone
@@ -115,19 +128,28 @@ public class SessionController {
                         sessionRepository.save(session);
 
                         Map<?, ?> tokenResp = wppService.generateWppToken(sessionName);
-                        session.setWppToken(Objects.toString(tokenResp.get("token"), null));
+
+                        session.setWppToken(
+                                        Objects.toString(tokenResp.get("token"), null));
                         session.setStatus("TOKEN_CREATED");
 
                         sessionRepository.save(session);
                 }
 
-                // 🔥 Start real no provider
-                Map<?, ?> providerResp = wppService.startSession(
+                // 🔥 Removemos phone antes de enviar ao provider
+                Map<String, Object> providerBody = new HashMap<>(body);
+                providerBody.remove("phone");
+                // providerBody.remove("webhook"); // ❌ webhook externo não permitido
+                providerBody.remove("proxy"); // ❌ webhook externo não permitido
+
+                // 🔥 Start REAL no WPPConnect (contrato fiel)
+                ResponseEntity<?> providerResp = wppService.startSession(
                                 session.getSessionName(),
-                                session.getWppToken());
+                                session.getWppToken(),
+                                providerBody);
 
                 session.setStatus(
-                                Objects.toString(providerResp.get("status"), "UNKNOWN"));
+                                Objects.toString(providerResp.getStatusCode(), "UNKNOWN"));
                 sessionRepository.save(session);
 
                 return ResponseEntity.ok(Map.of(
@@ -138,28 +160,16 @@ public class SessionController {
 
         private String buildSessionName(ApiClient client, String cleanPhone) {
 
-                String prefix;
+                String clientPrefix = Integer.toHexString(
+                                Math.abs(client.getApiKey().hashCode()));
 
-                if (client.getSource() == ClientSource.RAPID) {
-                        // 🔹 Legível para RapidAPI
-                        String slug = client.getApiKey()
-                                        .toLowerCase()
-                                        .replaceAll("[^a-z0-9]", "_")
-                                        .replaceAll("_+", "_");
+                // 🔥 sufixo único por sessão
+                String sessionId = UUID.randomUUID()
+                                .toString()
+                                .replace("-", "")
+                                .substring(0, 8);
 
-                        if (slug.length() > 20) {
-                                slug = slug.substring(0, 20);
-                        }
-
-                        prefix = slug;
-
-                } else {
-                        // 🔹 Curto para internal/admin
-                        prefix = Integer.toHexString(
-                                        Math.abs(client.getApiKey().hashCode()));
-                }
-
-                return "wpp_" + prefix + "_" + cleanPhone;
+                return "wpp_" + clientPrefix + "_" + cleanPhone + "_" + sessionId;
         }
 
         // =========================================================
@@ -218,17 +228,14 @@ public class SessionController {
         }
 
         // =========================================================
-        // DELETE SESSION (LOGOUT)
+        // DELETE SESSION (renew name)
         // =========================================================
 
-        @Operation(summary = "Logout a WhatsApp session", description = """
-                        Logs out a WhatsApp session and releases the phone number.
-
-                        - Only the owner can logout
-                        - Session is closed in the provider
+        @Operation(summary = "Delete WhatsApp session name", description = """
+                        Delete WhatsApp session and releases the name to renew in start-session.
                         """)
         @ApiResponses({
-                        @ApiResponse(responseCode = "200", description = "Session logged out"),
+                        @ApiResponse(responseCode = "200", description = "Session deleted"),
                         @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
                         @ApiResponse(responseCode = "404", description = "Session not found")
         })
@@ -240,30 +247,92 @@ public class SessionController {
                 ApiClient client = (ApiClient) request.getAttribute("apiClient");
 
                 SessionEntity s = sessionRepository.findBySessionName(session)
-                                .orElseThrow(() -> new RuntimeException("session not found"));
+                                .orElseThrow(() -> new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND,
+                                                "session_not_found"));
 
                 if (!s.getClientApiKey().equals(client.getApiKey())) {
-                        return ResponseEntity.status(403).body(Map.of(
-                                        "error", "session does not belong to client"));
-                }
-
-                try {
-                        wppService.safeLogoutAndClose(
-                                        session,
-                                        s.getWppToken());
-                } catch (Exception e) {
-                        logger.warn(
-                                        "Failed to cleanup session on provider: {}",
-                                        e.getMessage());
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                                        "error", "forbidden",
+                                        "message", "session does not belong to client"));
                 }
 
                 sessionRepository.delete(s);
 
                 return ResponseEntity.ok(Map.of(
-                                "action", "session_revoked",
+                                "action", "session_deleted",
                                 "session", s.getSessionName(),
                                 "phone", s.getPhone(),
-                                "status", "REVOKED"));
+                                "status", "DELETED"));
+        }
+
+        // =========================================================
+        // LOGOUT SESSION (DISCONECT IN WHATSAPP)
+        // =========================================================
+
+        @Operation(summary = "Logout WhatsApp session", description = """
+                        Disconect WhatsApp session and releases the phone.
+                        """)
+        @ApiResponses({
+                        @ApiResponse(responseCode = "200", description = "Session logged out"),
+                        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+                        @ApiResponse(responseCode = "404", description = "Session not found")
+        })
+        @PostMapping("/session/{session}/logout")
+        public ResponseEntity<?> logoutSession(
+                        HttpServletRequest request,
+                        @PathVariable String session) {
+
+                ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+                SessionEntity s = sessionRepository.findBySessionName(session)
+                                .orElseThrow(() -> new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "session_not_found"));
+
+                if (!s.getClientApiKey().equals(client.getApiKey())) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                                        "error", "forbidden"));
+                }
+
+                wppService.logoutSession(session, s.getWppToken());
+
+                return ResponseEntity.ok(Map.of(
+                                "action", "logout_requested",
+                                "session", session));
+        }
+        // =========================================================
+        // CLOSE SESSION (DISCONECT IN WHATSAPP)
+        // =========================================================
+
+        @Operation(summary = "Close WhatsApp session", description = """
+                        Disconected WhatsApp session will be removed on provider.
+                        """)
+        @ApiResponses({
+                        @ApiResponse(responseCode = "200", description = "Session closed"),
+                        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+                        @ApiResponse(responseCode = "404", description = "Session not found")
+        })
+        @PostMapping("/session/{session}/close")
+        public ResponseEntity<?> closeSession(
+                        HttpServletRequest request,
+                        @PathVariable String session) {
+
+                ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+                SessionEntity s = sessionRepository.findBySessionName(session)
+                                .orElseThrow(() -> new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "session_not_found"));
+
+                if (!s.getClientApiKey().equals(client.getApiKey())) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                                        "error", "forbidden"));
+                }
+
+                wppService.closeSession(session, s.getWppToken());
+
+                return ResponseEntity.ok(Map.of(
+                                "action", "close_requested",
+                                "session", session));
         }
 
         @Operation(summary = "Get WhatsApp session QR Code (Base64)", description = "Returns the QR Code as a Base64-encoded PNG image.")

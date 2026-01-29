@@ -2,6 +2,7 @@ package com.heureca.wppgateway.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +18,8 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+
+import com.heureca.wppgateway.model.ProviderSessionState;
 
 @Service
 public class WppService {
@@ -37,8 +40,7 @@ public class WppService {
             String token,
             String url, HttpMethod method,
             Object body,
-            String logName
-    ) {
+            String logName) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(token);
@@ -48,8 +50,7 @@ public class WppService {
         logger.debug("REQUEST WPPCONNECT ({}): {}", logName, url);
 
         try {
-            ResponseEntity<String> response
-                    = rest.exchange(url, method, request, String.class);
+            ResponseEntity<String> response = rest.exchange(url, method, request, String.class);
 
             logger.debug("RESPONSE WPPCONNECT ({}): status={}", logName, response.getStatusCode());
 
@@ -64,8 +65,7 @@ public class WppService {
                     "ERROR WPPCONNECT ({}): status={} body={}",
                     logName,
                     e.getStatusCode(),
-                    e.getResponseBodyAsString()
-            );
+                    e.getResponseBodyAsString());
 
             return ResponseEntity
                     .status(e.getStatusCode())
@@ -79,8 +79,7 @@ public class WppService {
                     .status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of(
                             "error", "WPP_CONNECT_UNAVAILABLE",
-                            "message", e.getMessage()
-                    ));
+                            "message", e.getMessage()));
         }
     }
 
@@ -97,7 +96,7 @@ public class WppService {
 
             throw new RuntimeException(
                     "Failed to authenticate with WhatsApp provider. "
-                    + "Please verify that the WPPConnect secret key is correctly configured.");
+                            + "Please verify that the WPPConnect secret key is correctly configured.");
 
         } catch (HttpServerErrorException e) {
             logger.error("WPPCONNECT SERVER ERROR ({}): {}", e.getStatusCode(), e.getResponseBodyAsString());
@@ -107,25 +106,21 @@ public class WppService {
         }
     }
 
-    public Map<?, ?> startSession(String sessionName, String token) {
+    public ResponseEntity<?> startSession(String sessionName, String token, Map<String, Object> body) {
         String url = String.format("%s/api/%s/start-session", wppBaseUrl, sessionName);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        if (token != null) {
-            headers.setBearerAuth(token);
-        }
-        Map<String, Object> body = Map.of("session", sessionName, "waitQrCode", false, "webhook", "");
-        HttpEntity<Map<String, Object>> req = new HttpEntity<>(body, headers);
-        logger.debug("REQUEST WPPCONNECT: {} :: req: {}", url, req);
-        ResponseEntity<Map> r = rest.exchange(url, HttpMethod.POST, req, Map.class);
-        return r.getBody();
+        return forwardToWppConnect(
+                token,
+                url,
+                HttpMethod.POST,
+                body,
+                "send-message");
+
     }
 
     public ResponseEntity<?> sendMessage(
             String session,
             String token,
-            Map<String, Object> body
-    ) {
+            Map<String, Object> body) {
         String url = String.format("%s/api/%s/send-message", wppBaseUrl, session);
 
         return forwardToWppConnect(
@@ -133,8 +128,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-message"
-        );
+                "send-message");
     }
 
     // Adicionar este método
@@ -190,8 +184,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-image-base64"
-        );
+                "send-image-base64");
     }
 
     /**
@@ -205,8 +198,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-file"
-        );
+                "send-file");
     }
 
     public ResponseEntity<?> sendFileBase64(String session, String token, Map<String, Object> body) {
@@ -217,8 +209,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-file-base64"
-        );
+                "send-file-base64");
     }
 
     /**
@@ -232,8 +223,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-voice"
-        );
+                "send-voice");
     }
 
     /**
@@ -247,8 +237,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-voice-base64"
-        );
+                "send-voice-base64");
     }
 
     /**
@@ -262,8 +251,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-sticker"
-        );
+                "send-sticker");
     }
 
     /**
@@ -277,8 +265,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-sticker-gif"
-        );
+                "send-sticker-gif");
     }
 
     // No seu WppService.java, adicione:
@@ -293,8 +280,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-list-message"
-        );
+                "send-list-message");
     }
 
     /**
@@ -308,8 +294,7 @@ public class WppService {
                 url,
                 HttpMethod.POST,
                 body,
-                "send-poll-message"
-        );
+                "send-poll-message");
     }
 
     /**
@@ -369,18 +354,50 @@ public class WppService {
     }
 
     /**
-     * Best-effort cleanup used by DELETE session
+     * Best-effort cleanup used by DELETE session.
+     * Returns true only if the provider confirms the session is closed or not
+     * found.
      */
-    public void safeLogoutAndClose(String sessionName, String token) {
-        boolean connected = isSessionConnected(sessionName, token);
+    public boolean safeLogoutAndClose(String sessionName, String token) {
 
-        if (connected) {
-            logger.debug("Session {} connected, logging out", sessionName);
-            logoutSession(sessionName, token);
+        try {
+            ProviderSessionState state = getProviderSessionState(sessionName, token);
+
+            if (state == ProviderSessionState.CONNECTED) {
+                logoutSession(sessionName, token);
+            }
+
+            // Verificação final
+            ProviderSessionState after = getProviderSessionState(sessionName, token);
+
+            return after == ProviderSessionState.NOT_FOUND
+                    || after == ProviderSessionState.DISCONNECTED;
+
+        } catch (Exception e) {
+            logger.error("Cleanup failed for session {}", sessionName, e);
+            return false;
         }
+    }
 
-        logger.debug("Closing session {}", sessionName);
-        closeSession(sessionName, token);
+    public ProviderSessionState getProviderSessionState(
+            String sessionName,
+            String token) {
+
+        try {
+            Map<?, ?> status = getSessionStatus(sessionName, token);
+            String s = Objects.toString(status.get("status"), "").toLowerCase();
+
+            return switch (s) {
+                case "initializing" -> ProviderSessionState.INITIALIZING;
+                case "qrcode" -> ProviderSessionState.QRCODE;
+                case "connected" -> ProviderSessionState.CONNECTED;
+                case "disconnected" -> ProviderSessionState.DISCONNECTED;
+                default -> ProviderSessionState.UNKNOWN;
+            };
+
+        } catch (HttpClientErrorException.NotFound e) {
+            return ProviderSessionState.NOT_FOUND;
+        }
     }
 
     public byte[] fetchQrCodeImage(String sessionName, String token) {

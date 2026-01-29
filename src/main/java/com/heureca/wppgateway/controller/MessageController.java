@@ -58,7 +58,7 @@ public class MessageController {
                         - Authentication, client validation and billing are handled by filter
                         """)
         @ApiResponses({
-                        @ApiResponse(responseCode = "200", description = "Message sent successfully"),
+                        @ApiResponse(responseCode = "201", description = "Message sent successfully"),
                         @ApiResponse(responseCode = "400", description = "Invalid request"),
                         @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
                         @ApiResponse(responseCode = "409", description = "Session not ready"),

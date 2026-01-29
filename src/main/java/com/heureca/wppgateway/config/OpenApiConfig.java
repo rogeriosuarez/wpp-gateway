@@ -21,16 +21,16 @@ public class OpenApiConfig {
         public OpenAPI wppGatewayOpenAPI() {
 
                 return new OpenAPI()
-                                .info(apiInfo())
-                                .components(
-                                                new Components()
-                                                                .addSecuritySchemes(SECURITY_SCHEME_NAME,
-                                                                                internalApiKeyScheme())
-                                                                // .addSecuritySchemes("RapidApiKey", rapidApiKeyScheme())
-                                                                )
-                                // 🔐 Default security = INTERNAL
-                                .addSecurityItem(
-                                                new SecurityRequirement().addList(SECURITY_SCHEME_NAME));
+                                .info(apiInfo());
+                                // .components(
+                                //                 new Components()
+                                //                                 .addSecuritySchemes(SECURITY_SCHEME_NAME,
+                                //                                                 internalApiKeyScheme())
+                                //                                 // .addSecuritySchemes("RapidApiKey", rapidApiKeyScheme())
+                                //                                 )
+                                // // 🔐 Default security = INTERNAL
+                                // .addSecurityItem(
+                                //                 new SecurityRequirement().addList(SECURITY_SCHEME_NAME));
         }
 
         private Info apiInfo() {
@@ -66,21 +66,21 @@ public class OpenApiConfig {
                                                 .url("https://heurecaai.com"));
         }
 
-        private SecurityScheme internalApiKeyScheme() {
-                return new SecurityScheme()
-                                .type(SecurityScheme.Type.APIKEY)
-                                .in(SecurityScheme.In.HEADER)
-                                .name("X-Api-Key")
-                                .description("""
-                                                🔐 Internal API Key authentication
+        // private SecurityScheme internalApiKeyScheme() {
+        //         return new SecurityScheme()
+        //                         .type(SecurityScheme.Type.APIKEY)
+        //                         .in(SecurityScheme.In.HEADER)
+        //                         .name("X-Api-Key")
+        //                         .description("""
+        //                                         🔐 Internal API Key authentication
 
-                                                - Required for all internal and RapidAPI calls
-                                                - Issued via /admin/create-client
-                                                - MUST be sent as header: X-Api-Key
+        //                                         - Required for all internal and RapidAPI calls
+        //                                         - Issued via /admin/create-client
+        //                                         - MUST be sent as header: X-Api-Key
 
-                                                ⚠️ When calling via RapidAPI, this key is STILL REQUIRED.
-                                                """);
-        }
+        //                                         ⚠️ When calling via RapidAPI, this key is STILL REQUIRED.
+        //                                         """);
+        // }
 
         // private SecurityScheme rapidApiKeyScheme() {
         //         return new SecurityScheme()

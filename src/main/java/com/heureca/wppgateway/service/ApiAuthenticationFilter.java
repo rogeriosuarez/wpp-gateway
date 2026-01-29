@@ -26,6 +26,8 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String RAPIDAPI_PROXY_SECRET =
             "d2686930-efc1-11f0-b75f-c5c7dea38db1";
+    private static final String RAPIDAPI_PROXY_SECRET2 =
+            "7870f700-f5aa-11f0-bae3-231f8dd9ea4d";
 
     private final ApiClientService clientService;
 
@@ -74,7 +76,7 @@ public class ApiAuthenticationFilter extends OncePerRequestFilter {
             // ==========================
             if (rapidUser != null && rapidHost != null && rapidProxySecret != null) {
 
-                if (!RAPIDAPI_PROXY_SECRET.equals(rapidProxySecret)) {
+                if (!RAPIDAPI_PROXY_SECRET.equals(rapidProxySecret)&&!RAPIDAPI_PROXY_SECRET2.equals(rapidProxySecret)) {
                     throw new UnauthorizedException("Invalid RapidAPI proxy origin");
                 }
 
