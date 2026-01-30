@@ -130,6 +130,19 @@ public class WppService {
                 body,
                 "send-message");
     }
+    public ResponseEntity<?> sendSeen(
+            String session,
+            String token,
+            Map<String, Object> body) {
+        String url = String.format("%s/api/%s/send-seen", wppBaseUrl, session);
+
+        return forwardToWppConnect(
+                token,
+                url,
+                HttpMethod.POST,
+                body,
+                "send-seen");
+    }
 
     // Adicionar este método
     public String getWppBaseUrl() {

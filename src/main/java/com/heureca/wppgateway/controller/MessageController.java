@@ -138,4 +138,92 @@ public class MessageController {
                 return response;
         }
 
+                @Operation(summary = "Send a WhatsApp seen", description = """
+                        Sends a seen to phone using an existing WhatsApp session.
+
+                        🔐 Authentication
+                        - API Key must be provided in header `X-Api-Key`
+                        - RapidAPI and internal keys are supported
+                        - Authentication, client validation and billing are handled by filter
+                        """)
+        @ApiResponses({
+                        @ApiResponse(responseCode = "201", description = "seen sent successfully"),
+                        @ApiResponse(responseCode = "400", description = "Invalid request"),
+                        @ApiResponse(responseCode = "403", description = "Session does not belong to client"),
+                        @ApiResponse(responseCode = "409", description = "Session not ready"),
+                        @ApiResponse(responseCode = "429", description = "Session daily limit exceeded")
+        })
+        @PostMapping("/send-seen")
+        public ResponseEntity<?> sendSeen(
+                        @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(examples = @ExampleObject(name = "Send text message example", value = """
+                                        {
+                                          "session": "my-session-01",
+                                          "phone": "5521999998888",
+                                          "isGroup": false
+                                        }
+                                        """))) @RequestBody Map<String, Object> body,
+                        HttpServletRequest request) {
+
+                // 🔐 Client already validated by filter
+                ApiClient client = (ApiClient) request.getAttribute("apiClient");
+
+                // 1️⃣ Extract session (minimum validation we still need)
+                String sessionName = (String) body.get("session");
+                if (sessionName == null || sessionName.isBlank()) {
+                        return ResponseEntity.badRequest().body(Map.of(
+                                        "error", "missing session in request body"));
+                }
+
+                // 2️⃣ Validate session existence
+                Optional<SessionEntity> sessionOpt = sessionRepository.findBySessionName(sessionName);
+
+                if (sessionOpt.isEmpty()) {
+                        return ResponseEntity.badRequest().body(Map.of(
+                                        "error", "session not found",
+                                        "session", sessionName));
+                }
+
+                SessionEntity session = sessionOpt.get();
+
+                // 3️⃣ Validate ownership
+                if (!session.getClientApiKey().equals(client.getApiKey())) {
+                        return ResponseEntity.status(403).body(Map.of(
+                                        "error", "session does not belong to client",
+                                        "session", sessionName));
+                }
+
+                // 4️⃣ Anti-block protection (session-level)
+                if (!sessionUsageService.canSendMessage(sessionName)) {
+                        int used = sessionUsageService.getUsageToday(sessionName);
+                        return ResponseEntity.status(429).body(Map.of(
+                                        "error", "session daily limit exceeded (anti-block protection)",
+                                        "limit", 450,
+                                        "used", used,
+                                        "session", sessionName));
+                }
+
+                // 5️⃣ Validate token presence
+                if (session.getWppToken() == null) {
+                        return ResponseEntity.badRequest().body(Map.of(
+                                        "error", "wpp token missing for session",
+                                        "session", sessionName));
+                }
+
+                // 6️⃣ Forward AS-IS to WPPConnect
+                ResponseEntity<?> response = wppService.sendSeen(
+                                sessionName,
+                                session.getWppToken(),
+                                body);
+
+                // 7️⃣ Register usage (only after provider call)
+                sessionUsageService.recordUsage(sessionName);
+
+                logger.debug(
+                                "MESSAGE_FORWARD | client={} | session={}",
+                                client.getId(),
+                                sessionName);
+
+                // 🔥 Return provider response AS-IS
+                return response;
+        }
 }
